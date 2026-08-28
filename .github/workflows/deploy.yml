@@ -45,17 +45,30 @@ jobs:
             # На диске 28 ГБ, образ ~900 МБ — без уборки он кончится за месяц.
             docker image prune -f
 
-            # Ждём, пока api пройдёт healthcheck. Миграции к этому моменту
-            # уже применены: сервис migrate отрабатывает до старта api.
-            echo "Жду готовности api…"
+            # Проверяем не состояние контейнеров, а то, что нужно на самом деле:
+            # отвечает ли приложение по HTTP. Запрос идёт через nginx, то есть
+            # разом покрывает и web, и api. Проверять healthcheck одного лишь api
+            # мало: при правке только фронта api не перезапускается и здоров сразу,
+            # а nginx в этот момент ещё поднимается — и проверка падает на живом
+            # приложении.
+            echo "Жду, пока приложение ответит…"
+            ok=""
             for i in $(seq 1 45); do
-              status=$(docker inspect --format '{{.State.Health.Status}}' media-pipeline-api-1 2>/dev/null || echo starting)
-              if [ "$status" = "healthy" ]; then break; fi
+              if curl -fsS -m 5 localhost/api/health > /tmp/health.json 2>/dev/null; then
+                ok=1
+                break
+              fi
               sleep 2
             done
 
-            # Если сюда дошли, а сервис не поднялся — job упадёт, и это правильно:
-            # молчаливый «успешный» деплой сломанной версии хуже красного крестика.
-            curl -fsS localhost/api/health
+            if [ -z "$ok" ]; then
+              echo "Приложение не ответило за 90 секунд. Состояние на сервере:"
+              docker compose --profile app ps -a
+              echo "--- последние логи ---"
+              docker compose --profile app logs --tail 50
+              exit 1
+            fi
+
+            cat /tmp/health.json
             echo ""
             echo "Деплой завершён: $(git rev-parse --short HEAD)"
