@@ -1,0 +1,61 @@
+name: Deploy
+
+# Только main: рабочие ветки не должны попадать на боевой сервер.
+on:
+  push:
+    branches: [main]
+  # Позволяет запустить деплой вручную из вкладки Actions —
+  # удобно, когда надо откатиться или переразвернуть без нового коммита.
+  workflow_dispatch:
+
+# Два быстрых пуша подряд не должны деплоиться одновременно:
+# они подерутся за docker на сервере. Второй дождётся первого.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Обновить сервер
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Выкатить и проверить
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+            cd /opt/fs-genius
+
+            # reset --hard, а не pull: сервер — не место для правок кода,
+            # и деплой должен приводить его ровно к состоянию main.
+            # Случайное изменение файла на сервере иначе роняет pull конфликтом.
+            # .env не отслеживается, его это не трогает.
+            git fetch --prune origin main
+            git reset --hard origin/main
+
+            docker compose --profile app up -d --build
+
+            # Старые образы после пересборки остаются без тега.
+            # На диске 28 ГБ, образ ~900 МБ — без уборки он кончится за месяц.
+            docker image prune -f
+
+            # Ждём, пока api пройдёт healthcheck. Миграции к этому моменту
+            # уже применены: сервис migrate отрабатывает до старта api.
+            echo "Жду готовности api…"
+            for i in $(seq 1 45); do
+              status=$(docker inspect --format '{{.State.Health.Status}}' media-pipeline-api-1 2>/dev/null || echo starting)
+              if [ "$status" = "healthy" ]; then break; fi
+              sleep 2
+            done
+
+            # Если сюда дошли, а сервис не поднялся — job упадёт, и это правильно:
+            # молчаливый «успешный» деплой сломанной версии хуже красного крестика.
+            curl -fsS localhost/api/health
+            echo ""
+            echo "Деплой завершён: $(git rev-parse --short HEAD)"
