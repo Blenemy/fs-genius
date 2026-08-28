@@ -1,4 +1,5 @@
 import js from '@eslint/js';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -7,6 +8,13 @@ export default tseslint.config(
     ignores: ['dist/**', 'src/generated/**', 'node_modules/**'],
   },
   js.configs.recommended,
+  {
+    // Служебные скрипты и конфиги выполняются в Node, а не в браузере.
+    files: ['**/*.mjs', 'eslint.config.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
   ...tseslint.configs.recommended,
   {
     rules: {
