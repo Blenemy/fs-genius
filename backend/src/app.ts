@@ -7,6 +7,7 @@ import { corsOrigins } from './config/env.js';
 import { logger } from './logger.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { healthRouter } from './routes/health.js';
+import { usersRouter } from './routes/users.js';
 
 export function createApp(): Express {
   const app = express();
@@ -21,6 +22,7 @@ export function createApp(): Express {
   app.use(pinoHttp({ logger }));
 
   app.use('/api', healthRouter);
+  app.use('/api', usersRouter);
 
   // Порядок обязателен: сначала 404, потом единый обработчик ошибок.
   app.use(notFoundHandler);
