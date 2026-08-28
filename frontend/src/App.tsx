@@ -1,22 +1,22 @@
-import { useEffect, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
-import { useHealthStore } from '@/store/health';
-import { useUsersStore } from '@/store/users';
+} from "@/components/ui/card";
+import { useHealthStore } from "@/store/health";
+import { useUsersStore } from "@/store/users";
 
 const statusLabel: Record<string, string> = {
-  idle: 'не проверялось',
-  loading: 'проверяю…',
-  online: 'API доступен',
-  offline: 'API недоступен',
+  idle: "не проверялось",
+  loading: "проверяю…",
+  online: "API доступен",
+  offline: "API недоступен",
 };
 
 function HealthCard() {
@@ -27,7 +27,11 @@ function HealthCard() {
   }, [check]);
 
   const badgeVariant =
-    status === 'online' ? 'default' : status === 'offline' ? 'destructive' : 'secondary';
+    status === "online"
+      ? "default"
+      : status === "offline"
+        ? "destructive"
+        : "secondary";
 
   return (
     <Card>
@@ -53,7 +57,7 @@ function HealthCard() {
         <Button
           variant="outline"
           onClick={() => void check()}
-          disabled={status === 'loading'}
+          disabled={status === "loading"}
         >
           Проверить снова
         </Button>
@@ -63,9 +67,10 @@ function HealthCard() {
 }
 
 function UsersCard() {
-  const { users, loading, saving, error, fetchUsers, createUser } = useUsersStore();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const { users, loading, saving, error, fetchUsers, createUser } =
+    useUsersStore();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
 
   useEffect(() => {
     void fetchUsers();
@@ -74,10 +79,13 @@ function UsersCard() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
 
-    const created = await createUser({ name: name.trim(), email: email.trim() });
+    const created = await createUser({
+      name: name.trim(),
+      email: email.trim(),
+    });
     if (created) {
-      setName('');
-      setEmail('');
+      setName("");
+      setEmail("");
     }
   }
 
@@ -86,13 +94,16 @@ function UsersCard() {
       <CardHeader>
         <CardTitle>Пользователи</CardTitle>
         <CardDescription>
-          Запись читается и пишется в MySQL через Prisma. Если имя сохраняется
-          и появляется в списке — база на сервере работает.
+          Запись читается и пишется в MySQL через Prisma. Если имя сохраняется и
+          появляется в списке — база на сервере работает.
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-5">
-        <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-3">
+        <form
+          onSubmit={(e) => void handleSubmit(e)}
+          className="flex flex-col gap-3"
+        >
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -108,7 +119,7 @@ function UsersCard() {
             required
           />
           <Button type="submit" disabled={saving}>
-            {saving ? 'Сохраняю…' : 'Добавить'}
+            {saving ? "Сохраняю…" : "Добавить"}
           </Button>
         </form>
 
@@ -141,9 +152,14 @@ function UsersCard() {
 
           <ul className="divide-border divide-y">
             {users.map((user) => (
-              <li key={user.id} className="flex items-baseline justify-between gap-4 py-2">
+              <li
+                key={user.id}
+                className="flex items-baseline justify-between gap-4 py-2"
+              >
                 <span className="font-medium">{user.name}</span>
-                <span className="text-muted-foreground truncate text-sm">{user.email}</span>
+                <span className="text-muted-foreground truncate text-sm">
+                  {user.email}
+                </span>
               </li>
             ))}
           </ul>
@@ -158,10 +174,12 @@ function App() {
     <main className="bg-background text-foreground min-h-svh p-6">
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
         <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Медиаконвейер</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Медиаконвейер
+          </h1>
           <p className="text-muted-foreground text-sm">
-            Каркас проекта. Функционала пока нет — на странице только проверки
-            того, что фронт, бэкенд и база видят друг друга.
+            Каркас проекта Тест. Функционала пока нет — на странице только
+            проверки того, что фронт, бэкенд и база видят друг друга.
           </p>
         </header>
 
