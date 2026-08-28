@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.log
+
+# сгенерированный клиент Prisma — создаётся командой npm run db:generate
+src/generated/

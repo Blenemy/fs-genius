@@ -1,0 +1,13 @@
+// Схема-заготовка. Модели (User, Asset, Job, Derivative, TelegramAccount)
+// добавляются на этапе M0 вместе с первой миграцией — см. README §5.
+//
+// Начиная с Prisma 7 строка подключения задаётся не здесь, а в prisma.config.ts.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
