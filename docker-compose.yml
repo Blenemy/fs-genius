@@ -1,91 +1,182 @@
-# Инфраструктура для локальной разработки «Медиаконвейера».
-# Приложения (api, worker, web) запускаются на хосте через npm run dev — здесь только хранилища.
+name: media-pipeline
+
+# Один файл на оба режима — переключение профилем.
+#
+#   Разработка (только база, приложения с хоста через npm run dev):
+#     docker compose up -d
+#
+#   Полный стек (проверка перед деплоем и запуск на сервере):
+#     docker compose --profile app up -d --build
+#
+# Сейчас подключены только фронт, бэк и база. Redis с очередями, хранилище
+# картинок и почта закомментированы — раскомментировать по мере надобности,
+# ориентиры по этапам указаны рядом с каждым сервисом.
 
 services:
+
+  # ── База ───────────────────────────────────────────────────────────────────
+  # Поднимается всегда: нужна и в разработке, и в полном стеке.
   mysql:
     image: mysql:8
-    container_name: mp-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: media_pipeline
-      MYSQL_USER: media
-      MYSQL_PASSWORD: media
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?нужен MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-media_pipeline}
+      MYSQL_USER: ${MYSQL_USER:-media}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?нужен MYSQL_PASSWORD}
     ports:
-      - "3306:3306"
+      # Только на локальный интерфейс: с хоста доступно, из интернета — нет.
+      # Благодаря этому один и тот же файл годится и для ноутбука, и для VPS.
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 40s
 
-  redis:
-    image: redis:7-alpine
-    container_name: mp-redis
-    restart: unless-stopped
-    # BullMQ требует, чтобы Redis не выселял ключи очередей под давлением памяти
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+  # ── Приложения ─────────────────────────────────────────────────────────────
+  # Только по профилю app. В разработке они запускаются с хоста,
+  # чтобы работала горячая перезагрузка.
 
-  minio:
-    image: minio/minio:latest
-    container_name: mp-minio
-    restart: unless-stopped
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # веб-консоль
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  minio-init:
-    image: minio/mc:latest
-    container_name: mp-minio-init
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/media &&
-      mc anonymous set none local/media &&
-      echo 'bucket media ready'
-      "
+  # Одноразовый сервис: применяет миграции и завершается.
+  # restart здесь не ставить — иначе будет крутиться в цикле.
+  migrate:
+    profiles: ["app"]
+    build:
+      context: ./backend
+      target: migrate
     restart: "no"
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?нужен DATABASE_URL}
+    depends_on:
+      mysql:
+        condition: service_healthy
 
-  mailpit:
-    image: axllent/mailpit:latest
-    container_name: mp-mailpit
+  api:
+    profiles: ["app"]
+    build:
+      context: ./backend
+      target: runtime
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    profiles: ["app"]
+    build:
+      context: ./frontend
     restart: unless-stopped
     ports:
-      - "1025:1025"   # SMTP
-      - "8025:8025"   # веб-интерфейс
-    healthcheck:
-      test: ["CMD", "/mailpit", "readyz"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      - "80:80"
+    depends_on:
+      - api
+
+  # ── Ниже — то, что появится на следующих этапах ────────────────────────────
+
+  # Redis: очереди BullMQ и канал прогресса (README §8, §9).
+  # Включить на M2, вместе с воркером. Не забудь добавить REDIS_URL в .env
+  # и вернуть redis в depends_on у api и worker.
+  #
+  # redis:
+  #   image: redis:7-alpine
+  #   restart: unless-stopped
+  #   # BullMQ не должен терять ключи очередей под давлением памяти.
+  #   command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+  #   ports:
+  #     - "127.0.0.1:6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+
+  # Воркер: обработчик очередей, второй процесс того же образа (README §4).
+  # Включить на M2. На M3 ему понадобится отдельный Dockerfile
+  # с системным ffmpeg — в образ api его тащить не нужно.
+  #
+  # worker:
+  #   profiles: ["app"]
+  #   build:
+  #     context: ./backend
+  #     target: runtime
+  #   restart: unless-stopped
+  #   command: ["node", "dist/worker.js"]
+  #   env_file: .env
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     migrate:
+  #       condition: service_completed_successfully
+
+  # MinIO: локальная замена S3 для работы с картинками и видео (README §6).
+  # Включить на M1, когда появится выдача временных ссылок на загрузку.
+  # В проде вместо него внешний S3 — там этот сервис не нужен.
+  #
+  # minio:
+  #   image: minio/minio:latest
+  #   restart: unless-stopped
+  #   command: ["server", "/data", "--console-address", ":9001"]
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   ports:
+  #     - "127.0.0.1:9000:9000"   # S3 API
+  #     - "127.0.0.1:9001:9001"   # веб-консоль
+  #   volumes:
+  #     - minio-data:/data
+  #   healthcheck:
+  #     test: ["CMD", "mc", "ready", "local"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+  #
+  # minio-init:
+  #   image: minio/mc:latest
+  #   depends_on:
+  #     minio:
+  #       condition: service_healthy
+  #   entrypoint: >
+  #     /bin/sh -c "
+  #     mc alias set local http://minio:9000 minioadmin minioadmin &&
+  #     mc mb --ignore-existing local/media &&
+  #     mc anonymous set none local/media
+  #     "
+  #   restart: "no"
+
+  # Mailpit: перехват писем в разработке (README §3).
+  # Включить, когда появится отправка почты.
+  #
+  # mailpit:
+  #   image: axllent/mailpit:latest
+  #   restart: unless-stopped
+  #   ports:
+  #     - "127.0.0.1:1025:1025"   # SMTP
+  #     - "127.0.0.1:8025:8025"   # веб-интерфейс
+  #   healthcheck:
+  #     test: ["CMD", "/mailpit", "readyz"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
 
 volumes:
   mysql-data:
-  redis-data:
-  minio-data:
+  # redis-data:
+  # minio-data:

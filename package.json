@@ -1,0 +1,17 @@
+{
+  "name": "media-pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Медиаконвейер — команды для запуска обоих приложений сразу",
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta -k \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "dev:worker": "npm --prefix backend run dev:worker",
+    "setup": "npm --prefix backend install && npm --prefix frontend install",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run typecheck",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}
