@@ -10,10 +10,8 @@ import { disconnectDb } from './db.js';
  * и media:image, на M3 — media:video, на M4 — notify (README §8).
  */
 const log = childLogger({ service: 'worker' });
-const redis = createRedis();
-
-redis.on('ready', () => log.info('redis готов'));
-redis.on('error', (err) => log.error({ err }, 'ошибка redis'));
+// Обработчики ready и error навешивает сама фабрика — см. redis.ts.
+const redis = createRedis('worker', 'queue');
 
 log.info('worker started — очереди пока не зарегистрированы');
 

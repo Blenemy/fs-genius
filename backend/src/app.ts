@@ -15,6 +15,13 @@ export function createApp(): Express {
   // За обратным прокси нужен реальный IP клиента — для лимитов частоты и логов.
   app.set('trust proxy', 1);
 
+  // BIGINT из MySQL приезжает в Prisma как BigInt, а JSON.stringify его не умеет
+  // и падает. Числа здесь — байты и счётчики, они заведомо меньше 2^53,
+  // поэтому безопасно отдавать их обычным числом.
+  app.set('json replacer', (_key: string, value: unknown) =>
+    typeof value === 'bigint' ? Number(value) : value,
+  );
+
   app.use(helmet());
   app.use(cors({ origin: corsOrigins, credentials: true }));
   app.use(express.json({ limit: '1mb' }));

@@ -9,14 +9,73 @@ datasource db {
   provider = "mysql"
 }
 
-/// Пользователь. Пока минимальный набор полей — этого достаточно,
-/// чтобы проверить, что миграции доезжают до сервера и база отвечает.
-/// На этапе M1 сюда добавятся passwordHash, role и quotaBytes (README §5).
+/// Тариф пользователя. Пока ни на что не влияет — нужен как поле,
+/// по которому можно фильтровать тяжёлый отчёт.
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum UploadStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+}
+
+/// Пользователь. На этапе M1 сюда добавятся passwordHash и role (README §5).
+///
+/// Часть полей (bio, company, country) существует ради демонстрации кеша:
+/// по ним идёт поиск без индекса, чтобы отчёт получался честно тяжёлым.
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String   @db.VarChar(100)
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
+  plan      Plan     @default(FREE)
+  isActive  Boolean  @default(true)
+  country   String   @db.VarChar(2)
+  city      String   @db.VarChar(80)
+  company   String?  @db.VarChar(120)
+  /// Свободный текст: по нему идёт LIKE '%...%', индекс здесь не помогает.
+  bio       String?  @db.Text
+  avatarUrl String?  @db.VarChar(255)
+
+  /// Байты считаются агрегатом по загрузкам, но лежат и здесь —
+  /// чтобы было с чем сравнить результат тяжёлого запроса.
+  quotaBytes  BigInt    @default(1073741824)
+  lastLoginAt DateTime?
+
+  uploads Upload[]
+
+  @@index([createdAt])
+}
+
+/// Загрузка пользователя. Настоящая работа с медиа появится на M1–M3,
+/// пока это источник строк для агрегатов в отчёте.
+model Upload {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  kind      MediaKind
+  status    UploadStatus @default(DONE)
+  sizeBytes BigInt
+  /// Длительность в миллисекундах — только у видео и аудио.
+  durationMs Int?
+  title      String   @db.VarChar(160)
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
   @@index([createdAt])
 }

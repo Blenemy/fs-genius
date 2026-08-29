@@ -39,6 +39,25 @@ services:
       retries: 10
       start_period: 40s
 
+  # Redis: очереди BullMQ и канал прогресса (README §8, §9).
+  # Поднимается всегда, как и mysql: воркер в разработке запускается
+  # с хоста и ходит сюда через проброшенный порт.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # BullMQ не должен терять ключи очередей под давлением памяти.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      # Как и у mysql — только локальный интерфейс.
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   # ── Приложения ─────────────────────────────────────────────────────────────
   # Только по профилю app. В разработке они запускаются с хоста,
   # чтобы работала горячая перезагрузка.
@@ -94,25 +113,6 @@ services:
       - api
 
   # ── Ниже — то, что появится на следующих этапах ────────────────────────────
-
-  # Redis: очереди BullMQ и канал прогресса (README §8, §9).
-  # Включить на M2, вместе с воркером. Не забудь добавить REDIS_URL в .env
-  # и вернуть redis в depends_on у api и worker.
-  #
-  # redis:
-  #   image: redis:7-alpine
-  #   restart: unless-stopped
-  #   # BullMQ не должен терять ключи очередей под давлением памяти.
-  #   command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
-  #   ports:
-  #     - "127.0.0.1:6379:6379"
-  #   volumes:
-  #     - redis-data:/data
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "ping"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 10
 
   # Воркер: обработчик очередей, второй процесс того же образа (README §4).
   # Включить на M2. На M3 ему понадобится отдельный Dockerfile
@@ -186,5 +186,5 @@ services:
 
 volumes:
   mysql-data:
-  # redis-data:
+  redis-data:
   # minio-data:
