@@ -54,7 +54,8 @@ jobs:
             echo "Жду, пока приложение ответит…"
             ok=""
             for i in $(seq 1 45); do
-              if curl -fsS -m 5 localhost/api/health > /tmp/health.json 2>/dev/null; then
+              # if curl -fsS -m 5 localhost/api/health > /tmp/health.json 2>/dev/null; then
+              if curl -fsS -m 5 https://topchyidev.shop/api/health > /tmp/health.json 2>/dev/null; then
                 ok=1
                 break
               fi
