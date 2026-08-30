@@ -46,7 +46,14 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     # BullMQ не должен терять ключи очередей под давлением памяти.
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory-policy",
+        "noeviction",
+      ]
     ports:
       # Как и у mysql — только локальный интерфейс.
       - "127.0.0.1:6379:6379"
@@ -108,7 +115,8 @@ services:
       context: ./frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      # - "80:80"
+      - "127.0.0.1:8080:80"
     depends_on:
       - api
 
