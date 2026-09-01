@@ -1,0 +1,16 @@
+---
+description: Backend conventions — feature modules, service classes, queues, errors.
+globs: backend/**/*.ts
+alwaysApply: false
+---
+
+# Backend
+
+Follow [backend/CONVENTIONS.md](backend/CONVENTIONS.md).
+
+- Feature module: `*.routes.ts` (functions, Zod, `AppError`) → `*.service.ts` (class) → Prisma. Routes do not import Prisma or `Queue`.
+- Classes for services, queue producers, worker processors, stateful infra. Functions for routes, middleware, Zod, mappers. Manual composition, no DI container.
+- `Queue` in the api process, `Worker` in `worker.ts`. Separate ioredis instances. Do not `queue.close()` / `redis.quit()` per request.
+- Throw `AppError`; only `middleware/error.ts` sends `{ error: { code, message } }`. No `res.status(500)` in modules.
+- Job payload is small JSON (`assetId`), never a file. Video queue concurrency stays 1–2.
+- Logs via pino, English messages (Windows console). Secrets only through `config/env.ts`.

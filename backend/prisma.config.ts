@@ -19,7 +19,7 @@ export default defineConfig({
     path: 'prisma/migrations',
   },
   // Используется только CLI. Рантайм-клиент подключается
-  // через driver adapter — см. src/db.ts.
+  // через driver adapter — см. src/lib/prisma.ts.
   ...(databaseUrl
     ? { datasource: { url: databaseUrl, ...(shadowDatabaseUrl ? { shadowDatabaseUrl } : {}) } }
     : {}),

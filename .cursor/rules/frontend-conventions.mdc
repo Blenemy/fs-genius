@@ -1,0 +1,15 @@
+---
+description: Frontend conventions — feature folders, Zustand, one SSE, shadcn.
+globs: frontend/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Frontend
+
+Follow [frontend/CONVENTIONS.md](frontend/CONVENTIONS.md).
+
+- New UI lives in `src/features/<name>/`. `components/ui` is shadcn only. Features do not import other features; compose in `app/` / router.
+- Zustand: `authStore` (access in memory), `uploadStore` (browser PUT), `assetsStore` (library + SSE patches), `eventsStore` (single EventSource). No refresh token in localStorage.
+- One `EventSource` for the whole app. Cards subscribe to the store. No polling `GET` on an interval. No WebSocket for job progress.
+- API errors: show `error.message`, branch on `error.code`. Uploads: presign → PUT to storage → complete, never through the api body.
+- Functional components only. Do not extend the sandbox QueueCard in `App.tsx` into product features.

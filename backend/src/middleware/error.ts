@@ -1,5 +1,5 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
-import { logger } from '../logger.js';
+import { logger } from '../lib/logger.js';
 import { isProduction } from '../config/env.js';
 
 /**
@@ -31,7 +31,7 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
 
-  logger.error({ err }, 'необработанная ошибка');
+  logger.error({ err }, 'unhandled error');
 
   res.status(500).json({
     error: {

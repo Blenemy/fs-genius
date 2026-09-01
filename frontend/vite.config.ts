@@ -16,6 +16,12 @@ export default defineConfig({
     // Проксируем api в разработке, чтобы не воевать с CORS
     // и обращаться к бэку по относительному пути /api.
     proxy: {
+      // SSE must not be buffered or the stream sits in the proxy until timeout.
+      '/api/events': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        timeout: 0,
+      },
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,

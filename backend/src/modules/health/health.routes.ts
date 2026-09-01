@@ -3,8 +3,8 @@ import { Router } from 'express';
 export const healthRouter: Router = Router();
 
 /**
- * Заглушка. На этапе M0 сюда добавляются раздельные проверки
- * MySQL, Redis и объектного хранилища (README §13).
+ * Stub. M0 will add separate checks for MySQL, Redis, and object storage
+ * (README §13).
  */
 healthRouter.get('/health', (_req, res) => {
   res.json({

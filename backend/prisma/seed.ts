@@ -10,7 +10,7 @@
  *
  * Скрипт идемпотентный: сначала чистит User и Upload, потом заполняет заново.
  */
-import { prisma } from '../src/db.js';
+import { prisma } from '../src/lib/prisma.js';
 
 const USERS = Number(process.env.SEED_USERS ?? 30_000);
 const UPLOADS_PER_USER = Number(process.env.SEED_UPLOADS_PER_USER ?? 12);

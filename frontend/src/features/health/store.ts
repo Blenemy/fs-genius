@@ -1,10 +1,5 @@
 import { create } from 'zustand';
-
-/**
- * Заглушка-стор для проверки связи фронта с api.
- * Настоящие сторы (authStore, uploadStore, assetsStore, eventsStore)
- * появятся на этапах M1–M2 — см. README §12.
- */
+import { apiJson } from '@/lib/api';
 
 type Status = 'idle' | 'loading' | 'online' | 'offline';
 
@@ -22,9 +17,6 @@ interface HealthState {
   check: () => Promise<void>;
 }
 
-// В разработке идём через прокси Vite (/api → localhost:3000).
-const API_URL = import.meta.env.VITE_API_URL ?? '';
-
 export const useHealthStore = create<HealthState>((set) => ({
   status: 'idle',
   data: null,
@@ -34,13 +26,7 @@ export const useHealthStore = create<HealthState>((set) => ({
     set({ status: 'loading', error: null });
 
     try {
-      const response = await fetch(`${API_URL}/api/health`);
-
-      if (!response.ok) {
-        throw new Error(`Сервер ответил ${response.status}`);
-      }
-
-      const data = (await response.json()) as HealthResponse;
+      const data = await apiJson<HealthResponse>('/api/health');
       set({ status: 'online', data, error: null });
     } catch (err) {
       set({

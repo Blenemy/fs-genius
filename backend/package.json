@@ -11,6 +11,7 @@
     "postinstall": "prisma generate",
     "dev": "node --watch --import tsx src/index.ts",
     "dev:worker": "node --watch --import tsx src/worker.ts",
+    "learn:add": "node --import tsx src/modules/learn/add-jobs.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "start:worker": "node dist/worker.js",
