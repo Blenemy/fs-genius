@@ -40,8 +40,7 @@ services:
       start_period: 40s
 
   # Redis: очереди BullMQ и канал прогресса (README §8, §9).
-  # Поднимается всегда, как и mysql: воркер в разработке запускается
-  # с хоста и ходит сюда через проброшенный порт.
+  # В профиле app сюда ходят контейнеры api и worker.
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -89,10 +88,13 @@ services:
     build:
       context: ./backend
       target: runtime
+    image: media-pipeline-backend
     restart: unless-stopped
     env_file: .env
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -109,6 +111,25 @@ services:
       retries: 5
       start_period: 20s
 
+  # Same image as api, different command. ffmpeg is not in this image (M3).
+  worker:
+    profiles: ["app"]
+    build:
+      context: ./backend
+      target: runtime
+    image: media-pipeline-backend
+    restart: unless-stopped
+    command: ["node", "dist/worker.js"]
+    env_file: .env
+    stop_grace_period: 20s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   web:
     profiles: ["app"]
     build:
@@ -121,26 +142,6 @@ services:
       - api
 
   # ── Ниже — то, что появится на следующих этапах ────────────────────────────
-
-  # Воркер: обработчик очередей, второй процесс того же образа (README §4).
-  # Включить на M2. На M3 ему понадобится отдельный Dockerfile
-  # с системным ffmpeg — в образ api его тащить не нужно.
-  #
-  # worker:
-  #   profiles: ["app"]
-  #   build:
-  #     context: ./backend
-  #     target: runtime
-  #   restart: unless-stopped
-  #   command: ["node", "dist/worker.js"]
-  #   env_file: .env
-  #   depends_on:
-  #     mysql:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #     migrate:
-  #       condition: service_completed_successfully
 
   # MinIO: локальная замена S3 для работы с картинками и видео (README §6).
   # Включить на M1, когда появится выдача временных ссылок на загрузку.
