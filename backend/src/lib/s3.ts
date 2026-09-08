@@ -1,5 +1,6 @@
 import {
   HeadBucketCommand,
+  HeadObjectCommand,
   S3Client,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
@@ -113,4 +114,33 @@ export async function presignPut(
     ContentType: contentType,
   });
   return getSignedUrl(getS3(), command, { expiresIn: 900 });
+}
+
+export async function headObject(
+  key: string,
+): Promise<{ contentLength: number } | null> {
+  const config = readS3Config();
+  if (!config) {
+    throw new Error("S3 is not configured");
+  }
+
+  try {
+    const result = await getS3().send(
+      new HeadObjectCommand({ Bucket: config.bucket, Key: key }),
+      { abortSignal: AbortSignal.timeout(5000) },
+    );
+    return { contentLength: result.ContentLength ?? 0 };
+  } catch (err) {
+    if (isNotFound(err)) return null;
+    throw err;
+  }
+}
+
+function isNotFound(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const name = "name" in err ? String(err.name) : "";
+  if (name === "NotFound" || name === "NoSuchKey") return true;
+  const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata
+    ?.httpStatusCode;
+  return status === 404;
 }

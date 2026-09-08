@@ -1,6 +1,6 @@
 import type { PrismaClient } from '../../generated/prisma/client.js';
 import { AppError } from '../../middleware/error.js';
-import { isS3Configured, presignPut } from '../../lib/s3.js';
+import { headObject, isS3Configured, presignPut } from '../../lib/s3.js';
 import { extensionFor, STUB_USER_ID, type PresignInput } from './uploads.schema.js';
 
 export class UploadsService {
@@ -41,6 +41,10 @@ export class UploadsService {
   }
 
   async complete(assetId: string) {
+    if (!isS3Configured()) {
+      throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Хранилище не настроено');
+    }
+
     const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
 
     if (!asset) {
@@ -49,6 +53,30 @@ export class UploadsService {
 
     if (asset.status === 'UPLOADED') {
       return { assetId: asset.id, status: asset.status };
+    }
+
+    let head: { contentLength: number } | null;
+    try {
+      head = await headObject(asset.storageKey);
+    } catch {
+      throw new AppError(
+        503,
+        'STORAGE_UNAVAILABLE',
+        'Не удалось проверить файл в хранилище',
+      );
+    }
+
+    if (!head) {
+      throw new AppError(400, 'UPLOAD_INCOMPLETE', 'Файл в хранилище не найден');
+    }
+
+    if (BigInt(head.contentLength) !== asset.sizeBytes) {
+      throw new AppError(
+        400,
+        'SIZE_MISMATCH',
+        'Размер в хранилище не совпал с заявленным',
+        { expected: Number(asset.sizeBytes), actual: head.contentLength },
+      );
     }
 
     const updated = await this.prisma.asset.update({
