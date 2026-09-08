@@ -84,6 +84,8 @@ enum AssetStatus {
   PENDING
   UPLOADED
 }
+
+/// Файл пользователя. id — cuid Prisma, он же кусок ключа в MinIO.
 model Asset {
   id           String      @id @default(cuid())
   userId       String      @default("local-dev")
@@ -93,5 +95,6 @@ model Asset {
   storageKey   String      @unique
   status       AssetStatus @default(PENDING)
   createdAt    DateTime    @default(now())
+
   @@index([userId])
 }

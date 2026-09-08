@@ -1,5 +1,10 @@
-import { HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
-import { env } from '../config/env.js';
+import {
+  HeadBucketCommand,
+  S3Client,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
+import { env } from "../config/env.js";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export type StorageCheck =
   | { ok: true; skipped: true }
@@ -16,8 +21,14 @@ interface S3Config {
 }
 
 function readS3Config(): S3Config | null {
-  const { S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, S3_REGION, S3_FORCE_PATH_STYLE } =
-    env;
+  const {
+    S3_ENDPOINT,
+    S3_BUCKET,
+    S3_ACCESS_KEY,
+    S3_SECRET_KEY,
+    S3_REGION,
+    S3_FORCE_PATH_STYLE,
+  } = env;
 
   if (!S3_ENDPOINT || !S3_BUCKET || !S3_ACCESS_KEY || !S3_SECRET_KEY) {
     return null;
@@ -42,7 +53,7 @@ export function isS3Configured(): boolean {
 export function getS3(): S3Client {
   const config = readS3Config();
   if (!config) {
-    throw new Error('S3 is not configured');
+    throw new Error("S3 is not configured");
   }
 
   client ??= new S3Client({
@@ -75,13 +86,31 @@ export async function checkStorage(): Promise<StorageCheck> {
 }
 
 function storageErrorMessage(err: unknown): string {
-  if (!(err instanceof Error)) return 'storage unreachable';
-  const name = err.name && err.name !== 'Error' ? err.name : '';
-  return [name, err.message].filter(Boolean).join(': ') || 'storage unreachable';
+  if (!(err instanceof Error)) return "storage unreachable";
+  const name = err.name && err.name !== "Error" ? err.name : "";
+  return (
+    [name, err.message].filter(Boolean).join(": ") || "storage unreachable"
+  );
 }
 
 export function destroyS3(): void {
   if (!client) return;
   client.destroy();
   client = null;
+}
+
+export async function presignPut(
+  key: string,
+  contentType: string,
+): Promise<string> {
+  const config = readS3Config();
+  if (!config) {
+    throw new Error("S3 is not configured");
+  }
+  const command = new PutObjectCommand({
+    Bucket: config.bucket,
+    Key: key,
+    ContentType: contentType,
+  });
+  return getSignedUrl(getS3(), command, { expiresIn: 900 });
 }

@@ -7,6 +7,7 @@ import { LearnQueue } from '../queues/learn.queue.js';
 import { LearnService } from '../modules/learn/learn.service.js';
 import { LearnEventsHub } from '../modules/learn/learn.events.js';
 import { UsersService } from '../modules/users/users.service.js';
+import { UploadsService } from '../modules/uploads/uploads.service.js';
 
 /** API process only. The worker process must not import this module. */
 const learnProducerRedis = createRedis('learn-producer', 'queue');
@@ -23,6 +24,7 @@ export const usersService = new UsersService(
 );
 
 export const healthService = new HealthService(prisma, getRedis());
+export const uploadsService = new UploadsService(prisma);
 
 export async function disconnectApi(): Promise<void> {
   await learnEventsHub.close();
