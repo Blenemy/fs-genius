@@ -79,3 +79,19 @@ model Upload {
   @@index([userId])
   @@index([createdAt])
 }
+
+enum AssetStatus {
+  PENDING
+  UPLOADED
+}
+model Asset {
+  id           String      @id @default(cuid())
+  userId       String      @default("local-dev")
+  originalName String      @db.VarChar(255)
+  contentType  String      @db.VarChar(100)
+  sizeBytes    BigInt
+  storageKey   String      @unique
+  status       AssetStatus @default(PENDING)
+  createdAt    DateTime    @default(now())
+  @@index([userId])
+}

@@ -1,31 +1,26 @@
-import 'dotenv/config';
-import { z } from 'zod';
+import "dotenv/config";
+import { z } from "zod";
 
-/**
- * Схема окружения. Всё, что нужно api и воркеру, объявляется здесь и только здесь.
- * Процесс падает на старте с внятным списком проблем, а не через полчаса
- * на первом обращении к undefined.
- */
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  NODE_ENV: z
+    .enum(["development", "test", "production"])
+    .default("development"),
   PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z
-    .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
-    .default('info'),
+    .enum(["fatal", "error", "warn", "info", "debug", "trace"])
+    .default("info"),
   // Список источников через запятую — фронт в разработке и домен в проде.
-  CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  CORS_ORIGIN: z.string().default("http://localhost:5173"),
 
-  DATABASE_URL: z.string().min(1, 'нужна строка подключения к MySQL'),
+  DATABASE_URL: z.string().min(1, "нужна строка подключения к MySQL"),
 
-  // Api ставит задачи, воркер их ест, прогресс идёт через Redis.
-  // В контейнерах хост — имя сервиса (redis), с хоста — localhost.
-  REDIS_URL: z.string().min(1, 'нужна строка подключения к Redis'),
+  REDIS_URL: z.string().min(1, "нужна строка подключения к Redis"),
 
   // Хранилище пока не подключено ни одной строкой кода, поэтому переменные
   // необязательные — иначе приложение не поднимется на сервере без S3.
   // Сделать обязательными на этапе M1, когда появится выдача временных ссылок.
   S3_ENDPOINT: z.url().optional(),
-  S3_REGION: z.string().default('us-east-1'),
+  S3_REGION: z.string().default("us-east-1"),
   S3_BUCKET: z.string().min(1).optional(),
   S3_ACCESS_KEY: z.string().min(1).optional(),
   S3_SECRET_KEY: z.string().min(1).optional(),
@@ -40,10 +35,14 @@ function loadEnv(): Env {
 
   if (!parsed.success) {
     const problems = parsed.error.issues
-      .map((issue) => `  ${issue.path.join('.') || '(корень)'}: ${issue.message}`)
-      .join('\n');
+      .map(
+        (issue) => `  ${issue.path.join(".") || "(корень)"}: ${issue.message}`,
+      )
+      .join("\n");
 
-    console.error(`Некорректное окружение:\n${problems}\n\nСверься с .env.example`);
+    console.error(
+      `Некорректное окружение:\n${problems}\n\nСверься с .env.example`,
+    );
     process.exit(1);
   }
 
@@ -52,8 +51,8 @@ function loadEnv(): Env {
 
 export const env = loadEnv();
 
-export const corsOrigins = env.CORS_ORIGIN.split(',')
+export const corsOrigins = env.CORS_ORIGIN.split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-export const isProduction = env.NODE_ENV === 'production';
+export const isProduction = env.NODE_ENV === "production";

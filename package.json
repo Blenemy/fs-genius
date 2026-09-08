@@ -4,7 +4,8 @@
   "private": true,
   "description": "Медиаконвейер — команды для запуска обоих приложений сразу",
   "scripts": {
-    "dev": "concurrently -n api,web -c cyan,magenta -k \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "predev": "docker compose up -d --wait mysql redis minio",
+    "dev": "concurrently -n api,web,worker -c cyan,magenta,yellow -k \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\" \"npm --prefix backend run dev:worker\"",
     "dev:worker": "npm --prefix backend run dev:worker",
     "setup": "npm --prefix backend install && npm --prefix frontend install",
     "build": "npm --prefix backend run build && npm --prefix frontend run build",

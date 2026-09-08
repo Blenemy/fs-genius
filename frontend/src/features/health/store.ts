@@ -1,13 +1,25 @@
 import { create } from 'zustand';
-import { apiJson } from '@/lib/api';
+import { API_URL } from '@/lib/api';
 
 type Status = 'idle' | 'loading' | 'online' | 'offline';
+
+export interface DepCheck {
+  ok: boolean;
+  error?: string;
+  skipped?: boolean;
+  bucket?: string;
+}
 
 export interface HealthResponse {
   status: string;
   service: string;
   uptimeSeconds: number;
   timestamp: string;
+  checks?: {
+    mysql: DepCheck;
+    redis: DepCheck;
+    storage: DepCheck;
+  };
 }
 
 interface HealthState {
@@ -26,7 +38,18 @@ export const useHealthStore = create<HealthState>((set) => ({
     set({ status: 'loading', error: null });
 
     try {
-      const data = await apiJson<HealthResponse>('/api/health');
+      const response = await fetch(`${API_URL}/api/health`);
+      const data = (await response.json()) as HealthResponse;
+
+      if (!response.ok) {
+        set({
+          status: 'offline',
+          data,
+          error: 'Один из сервисов недоступен',
+        });
+        return;
+      }
+
       set({ status: 'online', data, error: null });
     } catch (err) {
       set({

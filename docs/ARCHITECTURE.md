@@ -14,7 +14,7 @@
 | **worker** | очереди BullMQ, ffmpeg/sharp, запись статуса, pub/sub прогресса | HTTP, раздача статики |
 | **web** | загрузка в хранилище, UI, одно SSE | знание имён очередей и Redis |
 
-На сервере каждый процесс — отдельный контейнер/`command` того же образа backend для api и worker. Локально: `npm run dev` и `npm run dev:worker`.
+На сервере каждый процесс — отдельный контейнер/`command` того же образа backend для api и worker. Локально: `npm run dev` (mysql, redis, api, web, worker).
 
 ## Состояние
 

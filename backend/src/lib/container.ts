@@ -1,6 +1,8 @@
 import { prisma, disconnectDb } from './prisma.js';
 import { createRedis, getRedis, disconnectRedis } from './redis.js';
+import { destroyS3 } from './s3.js';
 import { requestCoalescer } from './request-coalescer.js';
+import { HealthService } from '../modules/health/health.service.js';
 import { LearnQueue } from '../queues/learn.queue.js';
 import { LearnService } from '../modules/learn/learn.service.js';
 import { LearnEventsHub } from '../modules/learn/learn.events.js';
@@ -20,6 +22,8 @@ export const usersService = new UsersService(
   requestCoalescer,
 );
 
+export const healthService = new HealthService(prisma, getRedis());
+
 export async function disconnectApi(): Promise<void> {
   await learnEventsHub.close();
   await learnQueue.close();
@@ -37,5 +41,6 @@ export async function disconnectApi(): Promise<void> {
   }
 
   await disconnectRedis();
+  destroyS3();
   await disconnectDb();
 }

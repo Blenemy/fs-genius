@@ -3,6 +3,7 @@ import { HealthCard } from '@/features/health/HealthCard';
 import { UsersCard } from '@/features/users/UsersCard';
 import { ReportCard } from '@/features/report/ReportCard';
 import { QueueCard } from '@/features/learn-queue/QueueCard';
+import { UploadCard } from '@/features/upload/UploadCard';
 import { useEventsStore } from '@/stores/events';
 
 export function App() {
@@ -23,6 +24,7 @@ export function App() {
           </p>
         </header>
 
+        <UploadCard />
         <QueueCard />
         <HealthCard />
         <ReportCard />
