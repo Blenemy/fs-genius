@@ -4,12 +4,21 @@ import { UsersCard } from '@/features/users/UsersCard';
 import { ReportCard } from '@/features/report/ReportCard';
 import { QueueCard } from '@/features/learn-queue/QueueCard';
 import { UploadCard } from '@/features/upload/UploadCard';
+import { LibraryCard } from '@/features/library/LibraryCard';
 import { useEventsStore } from '@/stores/events';
+import { useUploadStore } from '@/features/upload/store';
+import { useLibraryStore } from '@/features/library/store';
 
 export function App() {
   const connect = useEventsStore((s) => s.connect);
+  const uploadPhase = useUploadStore((s) => s.phase);
+  const fetchAssets = useLibraryStore((s) => s.fetchAssets);
 
   useEffect(() => connect(), [connect]);
+
+  useEffect(() => {
+    if (uploadPhase === 'done') void fetchAssets();
+  }, [uploadPhase, fetchAssets]);
 
   return (
     <main className="bg-background text-foreground min-h-svh p-6">
@@ -25,6 +34,7 @@ export function App() {
         </header>
 
         <UploadCard />
+        <LibraryCard />
         <QueueCard />
         <HealthCard />
         <ReportCard />

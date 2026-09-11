@@ -1,17 +1,18 @@
-import { prisma, disconnectDb } from './prisma.js';
-import { createRedis, getRedis, disconnectRedis } from './redis.js';
-import { destroyS3 } from './s3.js';
-import { requestCoalescer } from './request-coalescer.js';
-import { HealthService } from '../modules/health/health.service.js';
-import { LearnQueue } from '../queues/learn.queue.js';
-import { LearnService } from '../modules/learn/learn.service.js';
-import { LearnEventsHub } from '../modules/learn/learn.events.js';
-import { UsersService } from '../modules/users/users.service.js';
-import { UploadsService } from '../modules/uploads/uploads.service.js';
+import { prisma, disconnectDb } from "./prisma.js";
+import { createRedis, getRedis, disconnectRedis } from "./redis.js";
+import { destroyS3 } from "./s3.js";
+import { requestCoalescer } from "./request-coalescer.js";
+import { HealthService } from "../modules/health/health.service.js";
+import { LearnQueue } from "../queues/learn.queue.js";
+import { LearnService } from "../modules/learn/learn.service.js";
+import { LearnEventsHub } from "../modules/learn/learn.events.js";
+import { UsersService } from "../modules/users/users.service.js";
+import { UploadsService } from "../modules/uploads/uploads.service.js";
+import { AssetService } from "../modules/assets/assets.service.js";
 
 /** API process only. The worker process must not import this module. */
-const learnProducerRedis = createRedis('learn-producer', 'queue');
-const learnEventsRedis = createRedis('queue-events', 'queue');
+const learnProducerRedis = createRedis("learn-producer", "queue");
+const learnEventsRedis = createRedis("queue-events", "queue");
 
 export const learnQueue = new LearnQueue(learnProducerRedis);
 export const learnEventsHub = new LearnEventsHub(learnQueue, learnEventsRedis);
@@ -25,6 +26,7 @@ export const usersService = new UsersService(
 
 export const healthService = new HealthService(prisma, getRedis());
 export const uploadsService = new UploadsService(prisma);
+export const assetService = new AssetService(prisma);
 
 export async function disconnectApi(): Promise<void> {
   await learnEventsHub.close();

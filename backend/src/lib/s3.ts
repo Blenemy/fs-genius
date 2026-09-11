@@ -1,8 +1,10 @@
 import {
+  DeleteObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
   S3Client,
   PutObjectCommand,
+  GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { env } from "../config/env.js";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -114,6 +116,29 @@ export async function presignPut(
     ContentType: contentType,
   });
   return getSignedUrl(getS3(), command, { expiresIn: 900 });
+}
+
+export async function presignGet(
+  key: string,
+  expiresIn = 3600,
+): Promise<string> {
+  const command = new GetObjectCommand({
+    Bucket: readS3Config()!.bucket,
+    Key: key,
+  });
+  return getSignedUrl(getS3(), command, { expiresIn });
+}
+
+export async function deleteObject(key: string): Promise<void> {
+  const config = readS3Config();
+  if (!config) {
+    throw new Error("S3 is not configured");
+  }
+
+  await getS3().send(
+    new DeleteObjectCommand({ Bucket: config.bucket, Key: key }),
+    { abortSignal: AbortSignal.timeout(5000) },
+  );
 }
 
 export async function headObject(
