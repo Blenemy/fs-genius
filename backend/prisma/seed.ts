@@ -8,9 +8,19 @@
  * Объём настраивается переменными окружения:
  *   SEED_USERS=30000 SEED_UPLOADS_PER_USER=12 npm run db:seed
  *
- * Скрипт идемпотентный: сначала чистит User и Upload, потом заполняет заново.
+ * Скрипт идемпотентный: сначала удаляет строки с префиксом seed-, потом
+ * заполняет заново. Настоящие учётки, заведённые через регистрацию, он не
+ * трогает — иначе один случайный запуск стоил бы всей базы пользователей.
  */
+import { hash } from '@node-rs/argon2';
 import { prisma } from '../src/lib/prisma.js';
+
+/**
+ * Пароль всех сидовых пользователей. Данные здесь заведомо публичные,
+ * секретности от него не требуется — нужен рабочий хеш, под которым можно
+ * зайти и посмотреть, как ведёт себя экран с чужими данными.
+ */
+const SEED_PASSWORD = 'seed-password';
 
 const USERS = Number(process.env.SEED_USERS ?? 30_000);
 const UPLOADS_PER_USER = Number(process.env.SEED_UPLOADS_PER_USER ?? 12);
@@ -71,10 +81,22 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 async function main(): Promise<void> {
-  console.log(`Чищу таблицы…`);
+  console.log(`Чищу сидовые строки…`);
+  // Удаляем только то, что создал сам сид: с появлением регистрации в этих
+  // таблицах живут настоящие учётки, и безусловный DELETE снёс бы их вместе
+  // с их активами и refresh-токенами по каскаду.
   // Upload первым: на нём внешний ключ на User.
-  await prisma.$executeRawUnsafe('DELETE FROM `Upload`');
-  await prisma.$executeRawUnsafe('DELETE FROM `User`');
+  await prisma.$executeRawUnsafe(
+    "DELETE FROM `Upload` WHERE `userId` LIKE 'seed-user-%'",
+  );
+  await prisma.$executeRawUnsafe(
+    "DELETE FROM `User` WHERE `id` LIKE 'seed-user-%'",
+  );
+
+  // Один argon2 на весь сид, а не на строку: хеш считается ~50 мс, и на
+  // 30 000 пользователей это были бы десятки минут вместо секунд.
+  // Общая соль на всех здесь безразлична — данные выдуманные.
+  const passwordHash = await hash(SEED_PASSWORD);
 
   console.log(`Создаю ${USERS} пользователей…`);
   const userIds: string[] = [];
@@ -92,6 +114,7 @@ async function main(): Promise<void> {
         `${pick(CITIES)} User ${n}`,
         createdAt,
         createdAt,
+        passwordHash,
         pick(PLANS),
         random() > 0.15 ? 1 : 0,
         pick(COUNTRIES),
@@ -104,10 +127,11 @@ async function main(): Promise<void> {
       ];
     });
 
-    const placeholders = rows.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+    const placeholders = rows.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
     await prisma.$executeRawUnsafe(
-      'INSERT INTO `User` (`id`,`email`,`name`,`createdAt`,`updatedAt`,`plan`,`isActive`,' +
-        '`country`,`city`,`company`,`bio`,`avatarUrl`,`quotaBytes`,`lastLoginAt`) VALUES ' +
+      'INSERT INTO `User` (`id`,`email`,`name`,`createdAt`,`updatedAt`,`passwordHash`,' +
+        '`plan`,`isActive`,`country`,`city`,`company`,`bio`,`avatarUrl`,`quotaBytes`,' +
+        '`lastLoginAt`) VALUES ' +
         placeholders,
       ...rows.flat(),
     );
@@ -153,8 +177,15 @@ async function main(): Promise<void> {
     if (made % 5_000 < users.length) console.log(`  загрузки для ${made}/${USERS} пользователей`);
   }
 
-  const [users, uploads] = await Promise.all([prisma.user.count(), prisma.upload.count()]);
+  // Считаем именно сидовые строки: настоящие учётки в эту цифру попадать
+  // не должны, иначе непонятно, отработал сид или нет.
+  const seeded = { id: { startsWith: 'seed-user-' } };
+  const [users, uploads] = await Promise.all([
+    prisma.user.count({ where: seeded }),
+    prisma.upload.count({ where: { userId: { startsWith: 'seed-user-' } } }),
+  ]);
   console.log(`Готово: ${users} пользователей, ${uploads} загрузок.`);
+  console.log(`Пароль у всех сидовых пользователей: ${SEED_PASSWORD}`);
 }
 
 main()

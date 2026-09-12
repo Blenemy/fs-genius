@@ -17,6 +17,13 @@ enum Plan {
   ENTERPRISE
 }
 
+/// Роль пользователя (README §5). Пока ролями ничего не закрыто,
+/// но она попадает в access-токен, чтобы не ходить за ней в базу.
+enum Role {
+  USER
+  ADMIN
+}
+
 enum UploadStatus {
   PENDING
   PROCESSING
@@ -31,7 +38,7 @@ enum MediaKind {
   DOCUMENT
 }
 
-/// Пользователь. На этапе M1 сюда добавятся passwordHash и role (README §5).
+/// Пользователь.
 ///
 /// Часть полей (bio, company, country) существует ради демонстрации кеша:
 /// по ним идёт поиск без индекса, чтобы отчёт получался честно тяжёлым.
@@ -42,10 +49,16 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
+  /// Argon2id целиком, вместе с параметрами и солью: $argon2id$v=19$m=…$…
+  passwordHash String @db.VarChar(255)
+  role         Role   @default(USER)
+
   plan      Plan     @default(FREE)
   isActive  Boolean  @default(true)
-  country   String   @db.VarChar(2)
-  city      String   @db.VarChar(80)
+  /// Умолчание появилось вместе с регистрацией: форма спрашивает только
+  /// почту, имя и пароль. Сид и отчёт заполняют эти поля сами.
+  country   String   @default("") @db.VarChar(2)
+  city      String   @default("") @db.VarChar(80)
   company   String?  @db.VarChar(120)
   /// Свободный текст: по нему идёт LIKE '%...%', индекс здесь не помогает.
   bio       String?  @db.Text
@@ -56,9 +69,42 @@ model User {
   quotaBytes  BigInt    @default(1073741824)
   lastLoginAt DateTime?
 
-  uploads Upload[]
+  uploads       Upload[]
+  refreshTokens RefreshToken[]
 
   @@index([createdAt])
+}
+
+/// Выданный refresh-токен. В базе лежит sha256 от JWT, а не сам JWT:
+/// дамп таблицы не даёт войти.
+///
+/// Строки не удаляются, а помечаются revokedAt. Удалённую строку не отличить
+/// от никогда не существовавшей, а на этой разнице стоит детект кражи: если
+/// предъявлен уже отозванный токен, гасится вся цепочка familyId.
+model RefreshToken {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// sha256(token) в hex — ровно 64 символа.
+  tokenHash String @unique @db.Char(64)
+  /// Общий id цепочки ротаций (randomUUID — 36 символов).
+  familyId  String @db.VarChar(36)
+
+  expiresAt DateTime
+  revokedAt DateTime?
+  /// id строки-преемника. По нему видно, что токен отозван ротацией, а не
+  /// выходом, — и что две вкладки, обновившиеся разом, это не кража.
+  replacedById String?
+
+  userAgent String?  @db.VarChar(255)
+  /// 45 символов — столько занимает IPv6 в текстовом виде.
+  ip        String?  @db.VarChar(45)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
 }
 
 /// Загрузка пользователя. Настоящая работа с медиа появится на M1–M3,

@@ -9,6 +9,8 @@ import { LearnEventsHub } from "../modules/learn/learn.events.js";
 import { UsersService } from "../modules/users/users.service.js";
 import { UploadsService } from "../modules/uploads/uploads.service.js";
 import { AssetService } from "../modules/assets/assets.service.js";
+import { AuthService } from "../modules/auth/auth.service.js";
+import { tokenHelper } from "./tokens.js";
 
 /** API process only. The worker process must not import this module. */
 const learnProducerRedis = createRedis("learn-producer", "queue");
@@ -27,6 +29,7 @@ export const usersService = new UsersService(
 export const healthService = new HealthService(prisma, getRedis());
 export const uploadsService = new UploadsService(prisma);
 export const assetService = new AssetService(prisma);
+export const authService = new AuthService(prisma, tokenHelper);
 
 export async function disconnectApi(): Promise<void> {
   await learnEventsHub.close();
