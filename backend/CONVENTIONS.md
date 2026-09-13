@@ -100,7 +100,7 @@ Prisma вызываем из сервиса. Отдельный `*Repository` н
 ## HTTP и ошибки
 
 - Префикс `/api`, JSON, формат `{ error: { code, message, details? } }` только из `middleware/error.ts`
-- Access в заголовке, refresh в httpOnly cookie
+- Обе куки httpOnly: access с `path=/api`, refresh с `path=/api/auth`. Атрибуты — только из `lib/tokens.ts`
 - Проверка владельца актива на каждом мутирующем и скачивающем маршруте
 - После `Queue.add` ответ сразу: задача в очереди, не «обработка закончена»
 
