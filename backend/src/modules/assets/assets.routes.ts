@@ -5,8 +5,8 @@ import { requireAuth } from "../../middleware/auth.js";
 
 export const assetsRouter: Router = Router();
 
-assetsRouter.get("/assets", requireAuth, async (_req, res) => {
-  const assets = await assetService.getAssets();
+assetsRouter.get("/assets", requireAuth, async (req, res) => {
+  const assets = await assetService.getAssets(req.user!.id);
   res.status(200).json({ assets });
 });
 
@@ -19,6 +19,6 @@ assetsRouter.delete("/assets/:id", requireAuth, async (req, res) => {
     throw new AppError(400, "VALIDATION_FAILED", "Нет id файла");
   }
 
-  await assetService.deleteAsset(assetId);
+  await assetService.deleteAsset(assetId, req.user!.id);
   res.status(200).json({ ok: true });
 });

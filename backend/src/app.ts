@@ -2,9 +2,9 @@ import express, { type Express } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
-import { pinoHttp } from "pino-http";
+// import { pinoHttp } from "pino-http";
 import { corsOrigins } from "./config/env.js";
-import { logger } from "./lib/logger.js";
+// import { logger } from "./lib/logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.js";
 import { healthRouter } from "./modules/health/health.routes.js";
 import { learnRouter } from "./modules/learn/learn.routes.js";
@@ -27,7 +27,7 @@ export function createApp(): Express {
   app.use(cors({ origin: corsOrigins, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
-  app.use(pinoHttp({ logger }));
+  // app.use(pinoHttp({ logger }));
 
   app.use("/api", healthRouter);
   app.use("/api", learnRouter);

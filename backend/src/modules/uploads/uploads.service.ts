@@ -1,21 +1,21 @@
-import type { PrismaClient } from '../../generated/prisma/client.js';
-import { AppError } from '../../middleware/error.js';
-import { headObject, isS3Configured, presignPut } from '../../lib/s3.js';
-import { extensionFor, STUB_USER_ID, type PresignInput } from './uploads.schema.js';
+import type { PrismaClient } from "../../generated/prisma/client.js";
+import { AppError } from "../../middleware/error.js";
+import { headObject, isS3Configured, presignPut } from "../../lib/s3.js";
+import { extensionFor, type PresignInput } from "./uploads.schema.js";
 
 export class UploadsService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async presign(input: PresignInput) {
+  async presign(input: PresignInput, userId: string) {
     if (!isS3Configured()) {
-      throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Хранилище не настроено');
+      throw new AppError(503, "STORAGE_UNAVAILABLE", "Хранилище не настроено");
     }
 
     const ext = extensionFor(input.contentType);
 
     const created = await this.prisma.asset.create({
       data: {
-        userId: STUB_USER_ID,
+        userId: userId,
         originalName: input.fileName,
         contentType: input.contentType,
         sizeBytes: BigInt(input.sizeBytes),
@@ -24,7 +24,7 @@ export class UploadsService {
       },
     });
 
-    const storageKey = `u/${STUB_USER_ID}/${created.id}/original.${ext}`;
+    const storageKey = `u/${userId}/${created.id}/original.${ext}`;
 
     const asset = await this.prisma.asset.update({
       where: { id: created.id },
@@ -36,22 +36,24 @@ export class UploadsService {
     return {
       assetId: asset.id,
       uploadUrl,
-      headers: { 'Content-Type': asset.contentType },
+      headers: { "Content-Type": asset.contentType },
     };
   }
 
-  async complete(assetId: string) {
+  async complete(assetId: string, userId: string) {
     if (!isS3Configured()) {
-      throw new AppError(503, 'STORAGE_UNAVAILABLE', 'Хранилище не настроено');
+      throw new AppError(503, "STORAGE_UNAVAILABLE", "Хранилище не настроено");
     }
 
-    const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
+    const asset = await this.prisma.asset.findUnique({
+      where: { id: assetId },
+    });
 
-    if (!asset) {
-      throw new AppError(404, 'NOT_FOUND', 'Загрузка не найдена');
+    if (!asset || asset.userId !== userId) {
+      throw new AppError(404, "NOT_FOUND", "Загрузка не найдена");
     }
 
-    if (asset.status === 'UPLOADED') {
+    if (asset.status === "UPLOADED") {
       return { assetId: asset.id, status: asset.status };
     }
 
@@ -61,27 +63,31 @@ export class UploadsService {
     } catch {
       throw new AppError(
         503,
-        'STORAGE_UNAVAILABLE',
-        'Не удалось проверить файл в хранилище',
+        "STORAGE_UNAVAILABLE",
+        "Не удалось проверить файл в хранилище",
       );
     }
 
     if (!head) {
-      throw new AppError(400, 'UPLOAD_INCOMPLETE', 'Файл в хранилище не найден');
+      throw new AppError(
+        400,
+        "UPLOAD_INCOMPLETE",
+        "Файл в хранилище не найден",
+      );
     }
 
     if (BigInt(head.contentLength) !== asset.sizeBytes) {
       throw new AppError(
         400,
-        'SIZE_MISMATCH',
-        'Размер в хранилище не совпал с заявленным',
+        "SIZE_MISMATCH",
+        "Размер в хранилище не совпал с заявленным",
         { expected: Number(asset.sizeBytes), actual: head.contentLength },
       );
     }
 
     const updated = await this.prisma.asset.update({
       where: { id: asset.id },
-      data: { status: 'UPLOADED' },
+      data: { status: "UPLOADED" },
     });
 
     return { assetId: updated.id, status: updated.status };

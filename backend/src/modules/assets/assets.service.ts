@@ -5,9 +5,9 @@ import { deleteObject, presignGet } from "../../lib/s3.js";
 export class AssetService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async getAssets() {
+  async getAssets(userId: string) {
     const rows = await this.prisma.asset.findMany({
-      where: { status: "UPLOADED" },
+      where: { status: "UPLOADED", userId },
       orderBy: { createdAt: "desc" },
     });
 
@@ -24,12 +24,12 @@ export class AssetService {
     return assets;
   }
 
-  async deleteAsset(assetId: string) {
+  async deleteAsset(assetId: string, userId: string) {
     const asset = await this.prisma.asset.findUnique({
       where: { id: assetId },
     });
 
-    if (!asset) {
+    if (!asset || asset.userId !== userId) {
       throw new AppError(404, "NOT_FOUND", "Файл не найден");
     }
 
