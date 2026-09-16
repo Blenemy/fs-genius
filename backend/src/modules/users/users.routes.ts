@@ -1,28 +1,18 @@
 import { Router } from 'express';
-import { AppError } from '../../middleware/error.js';
 import { usersService } from '../../lib/container.js';
+import { parseOrThrow } from '../../lib/parse.js';
 import { createUserSchema, reportQuerySchema } from './users.schema.js';
 
 export const usersRouter: Router = Router();
 
 usersRouter.get('/users/report', async (req, res) => {
-  const parsed = reportQuerySchema.safeParse(req.query);
+  const data = parseOrThrow(
+    reportQuerySchema,
+    req.query,
+    'Некорректные параметры отчёта',
+  );
 
-  if (!parsed.success) {
-    throw new AppError(
-      400,
-      'VALIDATION_FAILED',
-      'Некорректные параметры отчёта',
-      {
-        issues: parsed.error.issues.map((i) => ({
-          field: i.path.join('.'),
-          message: i.message,
-        })),
-      },
-    );
-  }
-
-  res.json(await usersService.getReport(parsed.data));
+  res.json(await usersService.getReport(data));
 });
 
 usersRouter.get('/users', async (_req, res) => {
@@ -31,17 +21,7 @@ usersRouter.get('/users', async (_req, res) => {
 });
 
 usersRouter.post('/users', async (req, res) => {
-  const parsed = createUserSchema.safeParse(req.body);
-
-  if (!parsed.success) {
-    throw new AppError(400, 'VALIDATION_FAILED', 'Проверь заполненные поля', {
-      issues: parsed.error.issues.map((i) => ({
-        field: i.path.join('.'),
-        message: i.message,
-      })),
-    });
-  }
-
-  const user = await usersService.create(parsed.data);
+  const data = parseOrThrow(createUserSchema, req.body, 'Проверь заполненные поля');
+  const user = await usersService.create(data);
   res.status(201).json({ user });
 });
