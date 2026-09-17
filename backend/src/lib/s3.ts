@@ -8,6 +8,8 @@ import {
 } from "@aws-sdk/client-s3";
 import { env } from "../config/env.js";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { createReadStream, createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
 
 export type StorageCheck =
   | { ok: true; skipped: true }
@@ -159,6 +161,50 @@ export async function headObject(
     if (isNotFound(err)) return null;
     throw err;
   }
+}
+
+export async function getObjectToFile(
+  key: string,
+  filePath: string,
+): Promise<void> {
+  const config = readS3Config();
+  if (!config) {
+    throw new Error("S3 is not configured");
+  }
+
+  const { Body } = await getS3().send(
+    new GetObjectCommand({ Bucket: config.bucket, Key: key }),
+    { abortSignal: AbortSignal.timeout(10000) },
+  );
+
+  if (!Body) {
+    throw new Error("S3 object has no body");
+  }
+
+  const writeStream = createWriteStream(filePath);
+  await pipeline(Body as NodeJS.ReadableStream, writeStream);
+}
+
+export async function putObjectToS3(
+  key: string,
+  filePath: string,
+  contentType: string,
+): Promise<void> {
+  const config = readS3Config();
+  if (!config) {
+    throw new Error("S3 is not configured");
+  }
+
+  const readStream = createReadStream(filePath);
+  await getS3().send(
+    new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+      Body: readStream,
+      ContentType: contentType,
+    }),
+    { abortSignal: AbortSignal.timeout(10000) },
+  );
 }
 
 function isNotFound(err: unknown): boolean {

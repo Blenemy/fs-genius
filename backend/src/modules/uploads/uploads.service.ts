@@ -1,10 +1,14 @@
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../middleware/error.js";
 import { headObject, isS3Configured, presignPut } from "../../lib/s3.js";
+import type { ImageQueue } from "../../queues/image.queue.js";
 import { extensionFor, type PresignInput } from "./uploads.schema.js";
 
 export class UploadsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly imageQueue: ImageQueue,
+  ) {}
 
   async presign(input: PresignInput, userId: string) {
     if (!isS3Configured()) {
@@ -88,6 +92,11 @@ export class UploadsService {
     const updated = await this.prisma.asset.update({
       where: { id: asset.id },
       data: { status: "UPLOADED" },
+    });
+
+    await this.imageQueue.add({
+      assetId: updated.id,
+      userId: updated.userId,
     });
 
     return { assetId: updated.id, status: updated.status };
