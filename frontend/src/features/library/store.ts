@@ -7,7 +7,7 @@ interface LibraryState {
   loading: boolean;
   deletingId: string | null;
   error: string | null;
-  fetchAssets: () => Promise<void>;
+  fetchAssets: (opts?: { silent?: boolean }) => Promise<void>;
   deleteAsset: (assetId: string) => Promise<void>;
 }
 
@@ -17,8 +17,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   deletingId: null,
   error: null,
 
-  fetchAssets: async () => {
-    set({ loading: true, error: null });
+  fetchAssets: async (opts) => {
+    if (!opts?.silent) set({ loading: true, error: null });
+    else set({ error: null });
 
     try {
       const body = await fetchAssetList();

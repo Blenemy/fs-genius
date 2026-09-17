@@ -14,12 +14,17 @@ interface UploadState {
   phase: UploadPhase;
   file: File | null;
   fileName: string | null;
+  previewUrl: string | null;
   progress: number;
   assetId: string | null;
   error: string | null;
   selectFile: (file: File | null) => void;
   start: () => Promise<void>;
   reset: () => void;
+}
+
+function revokePreview(url: string | null) {
+  if (url) URL.revokeObjectURL(url);
 }
 
 function validateImage(file: File): string | null {
@@ -39,15 +44,19 @@ export const useUploadStore = create<UploadState>((set, get) => ({
   phase: 'idle',
   file: null,
   fileName: null,
+  previewUrl: null,
   progress: 0,
   assetId: null,
   error: null,
 
   selectFile: (file) => {
+    revokePreview(get().previewUrl);
+
     if (!file) {
       set({
         file: null,
         fileName: null,
+        previewUrl: null,
         error: null,
         phase: 'idle',
         progress: 0,
@@ -61,6 +70,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
       set({
         file: null,
         fileName: file.name,
+        previewUrl: null,
         error: problem,
         phase: 'error',
         progress: 0,
@@ -72,6 +82,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
     set({
       file,
       fileName: file.name,
+      previewUrl: URL.createObjectURL(file),
       error: null,
       phase: 'idle',
       progress: 0,
@@ -116,10 +127,12 @@ export const useUploadStore = create<UploadState>((set, get) => ({
   },
 
   reset: () => {
+    revokePreview(get().previewUrl);
     set({
       phase: 'idle',
       file: null,
       fileName: null,
+      previewUrl: null,
       progress: 0,
       assetId: null,
       error: null,

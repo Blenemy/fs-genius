@@ -131,6 +131,15 @@ enum AssetStatus {
   UPLOADED
 }
 
+/// Вариант файла после обработки. Байты в MinIO, здесь только ключ и мета.
+enum DerivKind {
+  THUMBNAIL
+  PREVIEW
+  POSTER
+  VIDEO_720P
+  AUDIO_MP3
+}
+
 /// Файл пользователя. id — cuid Prisma, он же кусок ключа в MinIO.
 model Asset {
   id           String      @id @default(cuid())
@@ -142,5 +151,24 @@ model Asset {
   status       AssetStatus @default(PENDING)
   createdAt    DateTime    @default(now())
 
+  derivatives Derivative[]
+
   @@index([userId])
+}
+
+model Derivative {
+  id         String    @id @default(cuid())
+  assetId    String
+  asset      Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  kind       DerivKind
+  storageKey String    @unique
+  mimeType   String    @db.VarChar(100)
+  sizeBytes  BigInt
+  width      Int?
+  height     Int?
+  createdAt  DateTime  @default(now())
+
+  @@unique([assetId, kind])
+  @@index([assetId])
 }

@@ -8,17 +8,23 @@ export class AssetService {
   async getAssets(userId: string) {
     const rows = await this.prisma.asset.findMany({
       where: { status: "UPLOADED", userId },
+      include: { derivatives: true },
       orderBy: { createdAt: "desc" },
     });
 
     const assets = await Promise.all(
-      rows.map(async (asset) => ({
-        id: asset.id,
-        originalName: asset.originalName,
-        contentType: asset.contentType,
-        url: await presignGet(asset.storageKey),
-        createdAt: asset.createdAt,
-      })),
+      rows.map(async (asset) => {
+        const thumb = asset.derivatives.find((d) => d.kind === "THUMBNAIL");
+        const url = await presignGet(thumb?.storageKey ?? asset.storageKey);
+
+        return {
+          id: asset.id,
+          originalName: asset.originalName,
+          contentType: thumb?.mimeType ?? asset.contentType,
+          url,
+          createdAt: asset.createdAt,
+        };
+      }),
     );
 
     return assets;
@@ -27,14 +33,20 @@ export class AssetService {
   async deleteAsset(assetId: string, userId: string) {
     const asset = await this.prisma.asset.findUnique({
       where: { id: assetId },
+      include: { derivatives: true },
     });
 
     if (!asset || asset.userId !== userId) {
       throw new AppError(404, "NOT_FOUND", "Файл не найден");
     }
 
+    const keys = [
+      asset.storageKey,
+      ...asset.derivatives.map((d) => d.storageKey),
+    ];
+
     try {
-      await deleteObject(asset.storageKey);
+      await Promise.all(keys.map((key) => deleteObject(key)));
     } catch {
       throw new AppError(
         503,
