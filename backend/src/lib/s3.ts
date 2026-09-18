@@ -55,11 +55,17 @@ export function isS3Configured(): boolean {
   return readS3Config() !== null;
 }
 
-export function getS3(): S3Client {
+function assertS3Configured(): S3Config {
   const config = readS3Config();
+
   if (!config) {
     throw new Error("S3 is not configured");
   }
+  return config;
+}
+
+export function getS3(): S3Client {
+  const config = assertS3Configured();
 
   client ??= new S3Client({
     region: config.region,
@@ -108,10 +114,8 @@ export async function presignPut(
   key: string,
   contentType: string,
 ): Promise<string> {
-  const config = readS3Config();
-  if (!config) {
-    throw new Error("S3 is not configured");
-  }
+  const config = assertS3Configured();
+
   const command = new PutObjectCommand({
     Bucket: config.bucket,
     Key: key,
@@ -124,18 +128,16 @@ export async function presignGet(
   key: string,
   expiresIn = 3600,
 ): Promise<string> {
+  const config = assertS3Configured();
   const command = new GetObjectCommand({
-    Bucket: readS3Config()!.bucket,
+    Bucket: config.bucket,
     Key: key,
   });
   return getSignedUrl(getS3(), command, { expiresIn });
 }
 
 export async function deleteObject(key: string): Promise<void> {
-  const config = readS3Config();
-  if (!config) {
-    throw new Error("S3 is not configured");
-  }
+  const config = assertS3Configured();
 
   await getS3().send(
     new DeleteObjectCommand({ Bucket: config.bucket, Key: key }),
@@ -146,10 +148,7 @@ export async function deleteObject(key: string): Promise<void> {
 export async function headObject(
   key: string,
 ): Promise<{ contentLength: number } | null> {
-  const config = readS3Config();
-  if (!config) {
-    throw new Error("S3 is not configured");
-  }
+  const config = assertS3Configured();
 
   try {
     const result = await getS3().send(
@@ -167,10 +166,7 @@ export async function getObjectToFile(
   key: string,
   filePath: string,
 ): Promise<void> {
-  const config = readS3Config();
-  if (!config) {
-    throw new Error("S3 is not configured");
-  }
+  const config = assertS3Configured();
 
   const { Body } = await getS3().send(
     new GetObjectCommand({ Bucket: config.bucket, Key: key }),
@@ -190,10 +186,7 @@ export async function putObjectToS3(
   filePath: string,
   contentType: string,
 ): Promise<void> {
-  const config = readS3Config();
-  if (!config) {
-    throw new Error("S3 is not configured");
-  }
+  const config = assertS3Configured();
 
   const readStream = createReadStream(filePath);
   await getS3().send(

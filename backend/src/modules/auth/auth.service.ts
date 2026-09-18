@@ -7,6 +7,7 @@ import {
 } from "./auth.schema.js";
 import { hash, verify } from "@node-rs/argon2";
 import { type PrismaClient } from "../../generated/prisma/client.js";
+import { isUniqueViolation } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error.js";
 import { logger } from "../../lib/logger.js";
 import type { TokenHelper } from "../../lib/tokens.js";
@@ -236,11 +237,7 @@ export class AuthService {
         select: publicUserSelect,
       });
     } catch (err) {
-      if (
-        err instanceof Error &&
-        "code" in err &&
-        (err as { code?: string }).code === "P2002"
-      ) {
+      if (isUniqueViolation(err)) {
         throw new AppError(
           409,
           "EMAIL_TAKEN",

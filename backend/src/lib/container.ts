@@ -12,6 +12,7 @@ import { AssetService } from "../modules/assets/assets.service.js";
 import { AuthService } from "../modules/auth/auth.service.js";
 import { tokenHelper } from "./tokens.js";
 import { ImageQueue } from "../queues/image.queue.js";
+import { logger } from "./logger.js";
 
 /** API process only. The worker process must not import this module. */
 const learnProducerRedis = createRedis("learn-producer", "queue");
@@ -34,28 +35,33 @@ export const uploadsService = new UploadsService(prisma, imageQueue);
 export const assetService = new AssetService(prisma);
 export const authService = new AuthService(prisma, tokenHelper);
 
+/**
+ * Только очередные соединения. Общий кеш-клиент гасит disconnectRedis():
+ * он единственный сбрасывает модульный shared, и повторный quit() по нему
+ * из этого списка ушёл бы в уже закрытый сокет.
+ */
+const queueConnections = [
+  learnProducerRedis,
+  imageProducerRedis,
+  learnEventsRedis,
+];
+
+async function quitQueueConnections(): Promise<void> {
+  for (const connection of queueConnections) {
+    try {
+      await connection.quit();
+    } catch (err) {
+      logger.warn({ err }, "failed to quit redis connection");
+    }
+  }
+}
+
 export async function disconnectApi(): Promise<void> {
   await learnEventsHub.close();
   await learnQueue.close();
   await imageQueue.close();
 
-  try {
-    await learnProducerRedis.quit();
-  } catch {
-    // already closed
-  }
-
-  try {
-    await imageProducerRedis.quit();
-  } catch {
-    // already closed
-  }
-
-  try {
-    await learnEventsRedis.quit();
-  } catch {
-    // already closed
-  }
+  await quitQueueConnections();
 
   await disconnectRedis();
   destroyS3();
