@@ -75,6 +75,15 @@ export function getS3(): S3Client {
       secretAccessKey: config.secretKey,
     },
     forcePathStyle: config.forcePathStyle,
+    // SDK начиная с 3.729 сам добавляет к загрузкам CRC32 тела. В presigned-
+    // ссылку он зашивает сумму от пустого тела (x-amz-checksum-crc32=AAAAAA==):
+    // тела в момент подписи ещё нет. Браузер кладёт настоящий файл, R2 сверяет
+    // суммы и отвечает 403. Из потока (воркер) SDK шлёт сумму хвостом
+    // aws-chunked, чего R2 тоже не принимает. MinIO всё это пропускает, поэтому
+    // локально поломка не видна. WHEN_REQUIRED — считать только там, где
+    // операция без суммы невозможна.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
 
   return client;
