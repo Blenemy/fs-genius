@@ -30,8 +30,20 @@ type LockedRefreshRow = {
   replacedById: string | null;
 };
 
+/**
+ * Исход попытки обновления. Отказ ВОЗВРАЩАЕТСЯ данными, а не бросается.
+ *
+ * Ветки TOKEN_REUSED и USER_INACTIVE перед отказом гасят цепочку, а
+ * prisma.$transaction откатывает колбэк на любом исключении: брошенный
+ * внутри AppError отменил бы и гашение. Снаружи выглядело бы правильно —
+ * клиент получает 401 — но украденная цепочка осталась бы рабочей.
+ * Поэтому решение принимается внутри транзакции, а бросается после коммита.
+ *
+ * По той же причине каждое гашение обязано быть с await: PrismaPromise
+ * ленивый, без await запрос не уходит вовсе, а транзакция коммитится.
+ */
 type RefreshOutcome =
-  | { kind: "session"; session: IssuedSession; cacheRowId: string }
+  | { kind: "session"; session: IssuedSession }
   | { kind: "replay"; session: IssuedSession }
   | {
       kind: "reject";
@@ -40,6 +52,44 @@ type RefreshOutcome =
       message: string;
       logReuse?: { userId: string; familyId: string };
     };
+
+type RejectOutcome = Extract<RefreshOutcome, { kind: "reject" }>;
+
+function reject(
+  status: number,
+  code: string,
+  message: string,
+  logReuse?: RejectOutcome["logReuse"],
+): RejectOutcome {
+  // Спред, а не logReuse: undefined — форма переживёт exactOptionalPropertyTypes.
+  return {
+    kind: "reject",
+    status,
+    code,
+    message,
+    ...(logReuse && { logReuse }),
+  };
+}
+
+/** Структурный тип: подходит и prisma, и tx внутри $transaction. */
+type RefreshDb = { refreshToken: PrismaClient["refreshToken"] };
+
+/**
+ * Гасит ВСЮ цепочку ротаций, а не одну строку.
+ *
+ * async с внутренним await намеренно: возвращается настоящий Promise, а не
+ * ленивый PrismaPromise. Забытый await у вызова тогда хотя бы отправит
+ * запрос и громко упадёт на закрытой транзакции, а не промолчит.
+ */
+async function revokeFamily(
+  tx: RefreshDb,
+  row: LockedRefreshRow,
+): Promise<void> {
+  await tx.refreshToken.updateMany({
+    where: { familyId: row.familyId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
 
 const recentlyIssued = new Map<
   string,
@@ -76,7 +126,6 @@ async function safeVerify(hashed: string, password: string): Promise<boolean> {
     return false;
   }
 }
-
 export class AuthService {
   private readonly log = logger.child({ service: "auth" });
 
@@ -134,7 +183,7 @@ export class AuthService {
   }
 
   private async insertRefresh(
-    db: { refreshToken: PrismaClient["refreshToken"] },
+    db: RefreshDb,
     userId: string,
     meta: SessionMeta,
     familyId?: string,
@@ -204,15 +253,106 @@ export class AuthService {
     return this.issueSession(user, meta);
   }
 
+  /**
+   * Строка уже отозвана. Два разных случая:
+   *
+   * а) revokedAt моложе REUSE_WINDOW_MS — это не кража, а вторая вкладка или
+   *    StrictMode: оба запроса ушли с одним токеном, первый успел ротировать.
+   *    Отдаём преемника по replacedById, цепочку НЕ гасим.
+   * б) старше окна — настоящее переиспользование: копия токена утекла.
+   *    Гасим всю цепочку.
+   *
+   * Не бросает, только возвращает: см. комментарий к RefreshOutcome.
+   * revokedAt отдельным аргументом, чтобы сужение типа с места вызова
+   * не потерялось и не пришлось писать row.revokedAt!.
+   */
+  private async resolveRevoked(
+    tx: RefreshDb,
+    row: LockedRefreshRow,
+    revokedAt: Date | string,
+  ): Promise<RefreshOutcome> {
+    const ageMs = Date.now() - asTime(revokedAt);
+
+    if (ageMs <= REUSE_WINDOW_MS && row.replacedById) {
+      const successor = await tx.refreshToken.findUnique({
+        where: { id: row.replacedById },
+      });
+
+      if (successor && !successor.revokedAt) {
+        const replay = replayIssued(successor.id);
+        if (replay) return { kind: "replay", session: replay };
+      }
+    }
+
+    await revokeFamily(tx, row);
+
+    return reject(401, "TOKEN_REUSED", "Сессия отозвана, войдите заново", {
+      userId: row.userId,
+      familyId: row.familyId,
+    });
+  }
+
+  /**
+   * Ротация: создать новую строку, старую пометить преемником.
+   *
+   * Порядок менять нельзя, и дело не только в том, что replacedById нечем
+   * заполнить до создания новой строки. Если процесс умрёт между двумя
+   * запросами, при таком порядке старый токен останется рабочим; при
+   * обратном цепочка останется без головы и человека выбросит на вход.
+   *
+   * Access подписывается АКТУАЛЬНОЙ ролью из базы, а не из старого токена:
+   * иначе разжалованный админ останется админом до конца срока refresh-а.
+   */
+  private async rotate(
+    tx: RefreshDb,
+    row: LockedRefreshRow,
+    user: PublicUser,
+    meta: SessionMeta,
+  ): Promise<IssuedSession> {
+    const { issued, rowId } = await this.insertRefresh(
+      tx,
+      user.id,
+      meta,
+      row.familyId,
+    );
+
+    await tx.refreshToken.update({
+      where: { id: row.id },
+      data: { revokedAt: new Date(), replacedById: rowId },
+    });
+
+    const session: IssuedSession = {
+      user,
+      accessToken: this.tokens.signAccess({ sub: user.id, role: user.role }),
+      refreshToken: issued.token,
+    };
+
+    // До commit: второй запрос стоит на FOR UPDATE и сразу читает кэш.
+    rememberIssued(rowId, session);
+
+    return session;
+  }
+
   async refresh(token: string | null, meta: SessionMeta) {
     if (!token) {
       throw new AppError(401, "UNAUTHORIZED", "Нужен вход");
     }
 
+    // Подпись проверяется ДО похода в базу: отсекает мусор без запроса к MySQL.
     const payload = this.tokens.verifyRefresh(token);
     const tokenHash = this.tokens.hash(token);
 
     const outcome = await this.prisma.$transaction(async (tx) => {
+      /**
+       * FOR UPDATE, а не findUnique: у MySQL по умолчанию REPEATABLE READ,
+       * и обычный SELECT внутри транзакции читает снимок на её старте.
+       * Вторая вкладка, начавшая транзакцию раньше, коммита первой не увидит —
+       * обе решат, что токен живой, обе ротируют, одна из сессий тут же умрёт.
+       * FOR UPDATE читает текущее состояние и ждёт на блокировке соседа.
+       *
+       * Поэтому внутрь транзакции не должно попадать ничего медленного:
+       * ни argon2, ни походов по сети — на блокировке стоит вторая вкладка.
+       */
       const rows = await tx.$queryRaw<LockedRefreshRow[]>`
         SELECT id, userId, familyId, expiresAt, revokedAt, replacedById
         FROM \`RefreshToken\`
@@ -222,56 +362,23 @@ export class AuthService {
 
       const row = rows[0];
       if (!row) {
-        return {
-          kind: "reject",
-          status: 401,
-          code: "TOKEN_INVALID",
-          message: "Сессия недействительна",
-        } satisfies RefreshOutcome;
+        return reject(401, "TOKEN_INVALID", "Сессия недействительна");
       }
 
       if (payload.sub !== row.userId || payload.fid !== row.familyId) {
-        return {
-          kind: "reject",
-          status: 401,
-          code: "TOKEN_INVALID",
-          message: "Сессия недействительна",
-        } satisfies RefreshOutcome;
+        return reject(401, "TOKEN_INVALID", "Сессия недействительна");
       }
 
       if (row.revokedAt) {
-        const ageMs = Date.now() - asTime(row.revokedAt);
-        if (ageMs <= REUSE_WINDOW_MS && row.replacedById) {
-          const successor = await tx.refreshToken.findUnique({
-            where: { id: row.replacedById },
-          });
-          if (successor && !successor.revokedAt) {
-            const replay = replayIssued(successor.id);
-            if (replay) return { kind: "replay", session: replay } as const;
-          }
-        }
-
-        await tx.refreshToken.updateMany({
-          where: { familyId: row.familyId, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
-
-        return {
-          kind: "reject",
-          status: 401,
-          code: "TOKEN_REUSED",
-          message: "Сессия отозвана, войдите заново",
-          logReuse: { userId: row.userId, familyId: row.familyId },
-        } satisfies RefreshOutcome;
+        return this.resolveRevoked(tx, row, row.revokedAt);
       }
 
+      /**
+       * exp живёт в токене, expiresAt — в базе. Формально сюда не дойти:
+       * verifyRefresh уже проверил exp. Если однажды разойдутся — верим базе.
+       */
       if (asTime(row.expiresAt) < Date.now()) {
-        return {
-          kind: "reject",
-          status: 401,
-          code: "TOKEN_EXPIRED",
-          message: "Срок действия токена истёк",
-        } satisfies RefreshOutcome;
+        return reject(401, "TOKEN_EXPIRED", "Срок действия токена истёк");
       }
 
       const found = await tx.user.findUnique({
@@ -280,52 +387,19 @@ export class AuthService {
       });
 
       if (!found) {
-        return {
-          kind: "reject",
-          status: 401,
-          code: "UNAUTHORIZED",
-          message: "Нужен вход",
-        } satisfies RefreshOutcome;
+        return reject(401, "UNAUTHORIZED", "Нужен вход");
       }
 
       if (!found.isActive) {
-        await tx.refreshToken.updateMany({
-          where: { familyId: row.familyId, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
-        return {
-          kind: "reject",
-          status: 403,
-          code: "USER_INACTIVE",
-          message: "Учётная запись отключена",
-        } satisfies RefreshOutcome;
+        await revokeFamily(tx, row);
+
+        return reject(403, "USER_INACTIVE", "Учётная запись отключена");
       }
 
       const { isActive: _isActive, ...user } = found;
-      const { issued, rowId } = await this.insertRefresh(
-        tx,
-        user.id,
-        meta,
-        row.familyId,
-      );
+      const session = await this.rotate(tx, row, user, meta);
 
-      await tx.refreshToken.update({
-        where: { id: row.id },
-        data: { revokedAt: new Date(), replacedById: rowId },
-      });
-
-      const session: IssuedSession = {
-        user,
-        accessToken: this.tokens.signAccess({
-          sub: user.id,
-          role: user.role,
-        }),
-        refreshToken: issued.token,
-      };
-
-      rememberIssued(rowId, session);
-
-      return { kind: "session", session, cacheRowId: rowId } as const;
+      return { kind: "session", session } as const;
     });
 
     if (outcome.kind === "session" || outcome.kind === "replay") {
