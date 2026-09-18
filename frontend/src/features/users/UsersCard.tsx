@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Card,
   CardContent,
@@ -11,62 +10,23 @@ import {
 import { useUsersStore } from './store';
 
 export function UsersCard() {
-  const { users, loading, saving, error, fetchUsers, createUser } =
-    useUsersStore();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const { users, loading, error, fetchUsers } = useUsersStore();
 
   useEffect(() => {
     void fetchUsers();
   }, [fetchUsers]);
-
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-
-    const created = await createUser({
-      name: name.trim(),
-      email: email.trim(),
-    });
-    if (created) {
-      setName('');
-      setEmail('');
-    }
-  }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Пользователи</CardTitle>
         <CardDescription>
-          Запись читается и пишется в MySQL через Prisma. Если имя сохраняется и
-          появляется в списке — база на сервере работает.
+          Список читается из MySQL через Prisma. Маршрут закрыт ролью ADMIN;
+          завести пользователя можно только через регистрацию.
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-5">
-        <form
-          onSubmit={(e) => void handleSubmit(e)}
-          className="flex flex-col gap-3"
-        >
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Имя"
-            maxLength={100}
-            required
-          />
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Почта"
-            required
-          />
-          <Button type="submit" disabled={saving}>
-            {saving ? 'Сохраняю…' : 'Добавить'}
-          </Button>
-        </form>
-
         {error && <p className="text-destructive text-sm">{error}</p>}
 
         <div className="space-y-2">
@@ -90,7 +50,7 @@ export function UsersCard() {
 
           {!loading && users.length === 0 && (
             <p className="text-muted-foreground text-sm">
-              Пока никого. Добавь первого — это и будет проверкой базы.
+              Пусто — либо в базе никого, либо у тебя нет роли ADMIN.
             </p>
           )}
 

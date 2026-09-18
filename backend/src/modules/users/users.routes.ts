@@ -1,27 +1,24 @@
-import { Router } from 'express';
-import { usersService } from '../../lib/container.js';
-import { parseOrThrow } from '../../lib/parse.js';
-import { createUserSchema, reportQuerySchema } from './users.schema.js';
+import { Router, type RequestHandler } from "express";
+import { usersService } from "../../lib/container.js";
+import { parseOrThrow } from "../../lib/parse.js";
+import { requireAuth, requireRole } from "../../middleware/auth.js";
+import { reportQuerySchema } from "./users.schema.js";
 
 export const usersRouter: Router = Router();
 
-usersRouter.get('/users/report', async (req, res) => {
+const adminOnly: RequestHandler[] = [requireAuth, requireRole("ADMIN")];
+
+usersRouter.get("/users/report", ...adminOnly, async (req, res) => {
   const data = parseOrThrow(
     reportQuerySchema,
     req.query,
-    'Некорректные параметры отчёта',
+    "Некорректные параметры отчёта",
   );
 
   res.json(await usersService.getReport(data));
 });
 
-usersRouter.get('/users', async (_req, res) => {
+usersRouter.get("/users", ...adminOnly, async (_req, res) => {
   const users = await usersService.list();
   res.json({ users });
-});
-
-usersRouter.post('/users', async (req, res) => {
-  const data = parseOrThrow(createUserSchema, req.body, 'Проверь заполненные поля');
-  const user = await usersService.create(data);
-  res.status(201).json({ user });
 });

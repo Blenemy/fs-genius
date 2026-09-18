@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 // import { pinoHttp } from "pino-http";
 import { corsOrigins } from "./config/env.js";
 // import { logger } from "./lib/logger.js";
+import { checkOrigin } from "./middleware/auth.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.js";
 import { healthRouter } from "./modules/health/health.routes.js";
 import { learnRouter } from "./modules/learn/learn.routes.js";
@@ -27,6 +28,7 @@ export function createApp(): Express {
   app.use(cors({ origin: corsOrigins, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
+  app.use(checkOrigin);
   // app.use(pinoHttp({ logger }));
 
   app.use("/api", healthRouter);

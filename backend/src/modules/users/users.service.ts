@@ -1,9 +1,8 @@
-import type { Redis } from 'ioredis';
-import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
-import { AppError } from '../../middleware/error.js';
-import { logger } from '../../lib/logger.js';
-import type { RequestCoalescer } from '../../lib/request-coalescer.js';
-import type { ReportQuery, CreateUserInput } from './users.schema.js';
+import type { Redis } from "ioredis";
+import { Prisma, type PrismaClient } from "../../generated/prisma/client.js";
+import { logger } from "../../lib/logger.js";
+import type { RequestCoalescer } from "../../lib/request-coalescer.js";
+import type { ReportQuery } from "./users.schema.js";
 
 interface ReportRow {
   id: string;
@@ -26,7 +25,7 @@ function toNumber(value: bigint | number | null): number {
 
 export class UsersService {
   private cacheMissCount = 0;
-  private readonly log = logger.child({ service: 'users' });
+  private readonly log = logger.child({ service: "users" });
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -36,32 +35,23 @@ export class UsersService {
 
   list() {
     return this.prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        plan: true,
+        isActive: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
       take: 50,
     });
   }
 
-  async create(data: CreateUserInput) {
-    try {
-      return await this.prisma.user.create({ data });
-    } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
-        throw new AppError(
-          409,
-          'EMAIL_TAKEN',
-          'Такая почта уже зарегистрирована',
-        );
-      }
-      throw err;
-    }
-  }
-
   async getReport(query: ReportQuery) {
     const { q, country, plan, days, limit, offset } = query;
-    const cacheKey = `users:report:${q}:${country ?? '*'}:${plan ?? '*'}:${days}:${limit}:${offset}`;
+    const cacheKey = `users:report:${q}:${country ?? "*"}:${plan ?? "*"}:${days}:${limit}:${offset}`;
 
     try {
       const cached = await this.redis.get(cacheKey);
@@ -70,7 +60,7 @@ export class UsersService {
         return { ...parsed, cached: true, cacheKey };
       }
     } catch (err) {
-      this.log.warn({ err, cacheKey }, 'failed to read report cache');
+      this.log.warn({ err, cacheKey }, "failed to read report cache");
     }
 
     return this.coalescer.execute(cacheKey, () =>
@@ -84,7 +74,7 @@ export class UsersService {
 
     this.log.info(
       { cacheMissCount: this.cacheMissCount, cacheKey },
-      'report cache miss, running SQL',
+      "report cache miss, running SQL",
     );
 
     const startedAt = performance.now();
@@ -100,7 +90,7 @@ export class UsersService {
         country ? Prisma.sql`u.country = ${country}` : Prisma.sql`1 = 1`,
         plan ? Prisma.sql`u.plan = ${plan}` : Prisma.sql`1 = 1`,
       ],
-      ' AND ',
+      " AND ",
     );
 
     const rows = await this.prisma.$queryRaw<ReportRow[]>`
@@ -161,9 +151,14 @@ export class UsersService {
     };
 
     try {
-      await this.redis.set(cacheKey, JSON.stringify(responseData), 'EX', 60 * 5);
+      await this.redis.set(
+        cacheKey,
+        JSON.stringify(responseData),
+        "EX",
+        60 * 5,
+      );
     } catch (err) {
-      this.log.error({ err, cacheKey }, 'failed to write report cache');
+      this.log.error({ err, cacheKey }, "failed to write report cache");
     }
 
     return responseData;
