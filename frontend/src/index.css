@@ -8,6 +8,9 @@
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -64,6 +67,8 @@
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
+    --success: oklch(0.6 0.13 158);
+    --success-foreground: oklch(0.985 0 0);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
     --ring: oklch(0.708 0 0);
@@ -84,37 +89,41 @@
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
+    /* Синеватый уголь, а не чистый чёрный: на нём картинки не «звенят». */
+    --background: oklch(0.165 0.012 260);
+    --foreground: oklch(0.96 0.004 260);
+    --card: oklch(0.205 0.014 260);
+    --card-foreground: oklch(0.96 0.004 260);
+    --popover: oklch(0.215 0.015 260);
+    --popover-foreground: oklch(0.96 0.004 260);
+    /* Холодный акцент: не спорит с цветом самих картинок. */
+    --primary: oklch(0.8 0.132 196);
+    --primary-foreground: oklch(0.19 0.03 220);
+    --secondary: oklch(0.262 0.016 260);
+    --secondary-foreground: oklch(0.96 0.004 260);
+    --muted: oklch(0.255 0.014 260);
+    --muted-foreground: oklch(0.705 0.016 260);
+    --accent: oklch(0.29 0.02 260);
+    --accent-foreground: oklch(0.97 0.004 260);
+    --destructive: oklch(0.68 0.19 20);
+    --success: oklch(0.76 0.15 158);
+    --success-foreground: oklch(0.19 0.03 160);
     --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --input: oklch(1 0 0 / 14%);
+    --ring: oklch(0.8 0.132 196);
+    --chart-1: oklch(0.8 0.132 196);
+    --chart-2: oklch(0.7 0.14 250);
+    --chart-3: oklch(0.76 0.15 158);
+    --chart-4: oklch(0.72 0.16 60);
+    --chart-5: oklch(0.65 0.17 20);
+    --sidebar: oklch(0.205 0.014 260);
+    --sidebar-foreground: oklch(0.96 0.004 260);
+    --sidebar-primary: oklch(0.8 0.132 196);
+    --sidebar-primary-foreground: oklch(0.19 0.03 220);
+    --sidebar-accent: oklch(0.29 0.02 260);
+    --sidebar-accent-foreground: oklch(0.97 0.004 260);
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar-ring: oklch(0.8 0.132 196);
 }
 
 @layer base {
@@ -127,4 +136,35 @@
   html {
     @apply font-sans;
     }
+}
+
+@layer base {
+  /* Мягкое свечение сверху — единственный источник «глубины» на экране.
+     fixed, чтобы не ехало при скролле галереи. */
+  body {
+    background-image: radial-gradient(
+      55rem 32rem at 50% -8rem,
+      color-mix(in oklch, var(--primary) 10%, transparent),
+      transparent 70%
+    );
+    background-attachment: fixed;
+  }
+
+  /* Тонкая полоса скролла: широкая системная на тёмном фоне бьёт в глаза. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 30%, transparent);
+  }
+}
+
+@utility surface-grid {
+  /* Техническая сетка для дропзоны. */
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 22px 22px;
 }

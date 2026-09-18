@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Navigate, Outlet } from "react-router-dom";
+import { Logo } from "@/components/brand";
 import { useAuthStore } from "@/stores/auth";
 
 function useBootstrappedStatus() {
@@ -15,8 +16,11 @@ function useBootstrappedStatus() {
 
 function Splash() {
   return (
-    <main className="bg-background text-foreground flex min-h-svh items-center justify-center">
-      <p className="text-muted-foreground text-sm">Проверяю сессию…</p>
+    <main className="flex min-h-svh flex-col items-center justify-center gap-4">
+      <Logo className="animate-pulse" />
+      <p className="text-muted-foreground font-mono text-xs tracking-wide">
+        проверяю сессию…
+      </p>
     </main>
   );
 }
