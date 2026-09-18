@@ -16,9 +16,9 @@ const envSchema = z.object({
 
   REDIS_URL: z.string().min(1, "нужна строка подключения к Redis"),
 
-  // Хранилище пока не подключено ни одной строкой кода, поэтому переменные
-  // необязательные — иначе приложение не поднимется на сервере без S3.
-  // Сделать обязательными на этапе M1, когда появится выдача временных ссылок.
+  // Формально необязательные, потому что в разработке приложение должно
+  // подниматься и без MinIO. В production их отсутствие — ошибка старта,
+  // см. requireStorageInProduction ниже.
   S3_ENDPOINT: z.url().optional(),
   S3_REGION: z.string().default("us-east-1"),
   S3_BUCKET: z.string().min(1).optional(),
@@ -42,6 +42,13 @@ const envSchema = z.object({
   // 127.0.0.1:8080 — там Secure надо выключить, иначе браузер молча выбросит
   // Set-Cookie и вход будет «успешным», но нерабочим.
   COOKIE_SECURE: z.stringbool().default(false),
+
+  // Сколько прокси-хопов перед приложением. Влияет на req.ip: он пишется в
+  // строку RefreshToken и будет ключом для rate-limit. Значение больше
+  // реального числа хопов = клиент может подделать свой адрес через
+  // X-Forwarded-For, меньше = все клиенты выглядят одним адресом.
+  // На проде перед api два nginx: хостовый и тот, что в образе web.
+  TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(1),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -62,7 +69,30 @@ function loadEnv(): Env {
     process.exit(1);
   }
 
+  requireStorageInProduction(parsed.data);
+
   return parsed.data;
+}
+
+/**
+ * Без S3 приложение поднимется и будет выглядеть здоровым: /health отдаёт
+ * storage.skipped, а загрузка отвечает 503 STORAGE_UNAVAILABLE. На проде это
+ * худший вид поломки — тихий. Поэтому там отсутствие настроек валит старт.
+ */
+function requireStorageInProduction(env: Env): void {
+  if (env.NODE_ENV !== "production") return;
+
+  const missing = (
+    ["S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY"] as const
+  ).filter((key) => !env[key]);
+
+  if (missing.length === 0) return;
+
+  console.error("NODE_ENV=production, но хранилище не настроено.");
+  console.error("Не хватает:");
+  for (const key of missing) console.error(`  ${key}`);
+  console.error("Без них загрузка файлов отвечает 503. Сверься с .env.example");
+  process.exit(1);
 }
 
 export const env = loadEnv();

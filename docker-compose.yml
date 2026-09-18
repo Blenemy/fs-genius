@@ -141,19 +141,19 @@ services:
     depends_on:
       - api
 
-  # ── Ниже — то, что появится на следующих этапах ────────────────────────────
-
-  # MinIO: локальная замена S3 для работы с картинками и видео (README §6).
-  # Включить на M1, когда появится выдача временных ссылок на загрузку.
-  # В проде вместо него внешний S3 — там этот сервис не нужен.
+  # MinIO: локальная замена S3 (README §6). Профиль dev — на проде вместо
+  # него внешний S3, и поднимать MinIO там не нужно. Профиль не мешает
+  # поднять сервис поимённо: `docker compose up -d minio` включает его
+  # профиль сам. Именно так делает npm run predev.
 
   minio:
+    profiles: ["dev"]
     image: minio/minio:latest
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
     ports:
       - "127.0.0.1:9000:9000" # S3 API
       - "127.0.0.1:9001:9001" # веб-консоль
@@ -166,15 +166,16 @@ services:
       retries: 10
 
   minio-init:
+    profiles: ["dev"]
     image: minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/media &&
-      mc anonymous set none local/media
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-minioadmin} ${S3_SECRET_KEY:-minioadmin} &&
+      mc mb --ignore-existing local/${S3_BUCKET:-media} &&
+      mc anonymous set none local/${S3_BUCKET:-media}
       "
     restart: "no"
 

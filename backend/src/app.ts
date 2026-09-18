@@ -3,7 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 // import { pinoHttp } from "pino-http";
-import { corsOrigins } from "./config/env.js";
+import { corsOrigins, env } from "./config/env.js";
 // import { logger } from "./lib/logger.js";
 import { checkOrigin } from "./middleware/auth.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.js";
@@ -18,7 +18,7 @@ import { docsRouter } from "./modules/docs/docs.routes.js";
 export function createApp(): Express {
   const app = express();
 
-  app.set("trust proxy", 1);
+  app.set("trust proxy", env.TRUST_PROXY);
 
   app.set("json replacer", (_key: string, value: unknown) =>
     typeof value === "bigint" ? Number(value) : value,
