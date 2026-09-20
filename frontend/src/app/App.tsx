@@ -5,27 +5,26 @@ import { Wordmark } from "@/components/brand";
 import { UploadCard } from "@/features/upload/UploadCard";
 import { LibraryCard } from "@/features/library/LibraryCard";
 import { useAuthStore } from "@/stores/auth";
-import { useUploadStore } from "@/features/upload/store";
 import { useLibraryStore } from "@/features/library/store";
-
-const THUMB_READY_MS = 2500;
+import { useEventsStore } from "@/stores/events";
 
 export function App() {
+  const connect = useEventsStore((s) => s.connect);
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const uploadPhase = useUploadStore((s) => s.phase);
-  const fetchAssets = useLibraryStore((s) => s.fetchAssets);
+  const applyAsset = useLibraryStore((s) => s.applyAsset);
 
-  useEffect(() => {
-    if (uploadPhase !== "done") return;
-
-    void fetchAssets({ silent: true });
-    const timer = window.setTimeout(() => {
-      void fetchAssets({ silent: true });
-    }, THUMB_READY_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [uploadPhase, fetchAssets]);
+  useEffect(
+    () =>
+      connect((event) => {
+        if (event.type === "snapshot") {
+          for (const asset of event.assets) applyAsset(asset);
+          return;
+        }
+        applyAsset(event.asset);
+      }),
+    [connect, applyAsset],
+  );
 
   const initials = (user?.name ?? user?.email ?? "?").trim().charAt(0).toUpperCase();
 

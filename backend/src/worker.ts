@@ -7,16 +7,19 @@ import type { ImageJobData, ProbeJobData } from "./shared/jobs.js";
 import { ProbeProcessor } from "./worker/probe.processor.js";
 import { ImageProcessor } from "./worker/image.processor.js";
 import { ImageQueue } from "./queues/image.queue.js";
+import { MediaEventsPublisher } from "./lib/media-events-publisher.js";
 
 const log = childLogger({ service: "worker" });
 
 const probeRedis = createRedis("worker-probe", "queue");
 const imageRedis = createRedis("worker-image", "queue");
 const imageProducerRedis = createRedis("worker-image-producer", "queue");
+const eventsPubRedis = createRedis("worker-events-pub", "queue");
 
 const imageQueue = new ImageQueue(imageProducerRedis);
-const probeProcessor = new ProbeProcessor(imageQueue);
-const imageProcessor = new ImageProcessor();
+const mediaEvents = new MediaEventsPublisher(eventsPubRedis);
+const probeProcessor = new ProbeProcessor(imageQueue, mediaEvents);
+const imageProcessor = new ImageProcessor(mediaEvents);
 
 const probeWorker = new Worker<ProbeJobData>(
   QUEUE_NAMES.mediaProbe,
@@ -63,6 +66,7 @@ async function shutdown(signal: string): Promise<void> {
     await probeRedis.quit();
     await imageRedis.quit();
     await imageProducerRedis.quit();
+    await eventsPubRedis.quit();
     await disconnectDb();
   } catch (err) {
     log.error({ err }, "error disconnecting");

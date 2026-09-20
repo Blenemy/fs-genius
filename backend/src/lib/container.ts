@@ -9,12 +9,17 @@ import { AssetService } from "../modules/assets/assets.service.js";
 import { AuthService } from "../modules/auth/auth.service.js";
 import { tokenHelper } from "./tokens.js";
 import { ProbeQueue } from "../queues/probe.queue.js";
+import { MediaEventsPublisher } from "./media-events-publisher.js";
+import { MediaEventsHub } from "../modules/events/events.hub.js";
 import { logger } from "./logger.js";
 
 /** API process only. The worker process must not import this module. */
 const probeProducerRedis = createRedis("probe-producer", "queue");
+const eventsPubRedis = createRedis("events-pub", "queue");
+const eventsSubRedis = createRedis("events-sub", "queue");
 
 export const probeQueue = new ProbeQueue(probeProducerRedis);
+export const mediaEventsPublisher = new MediaEventsPublisher(eventsPubRedis);
 
 export const usersService = new UsersService(
   prisma,
@@ -23,8 +28,13 @@ export const usersService = new UsersService(
 );
 
 export const healthService = new HealthService(prisma, getRedis());
-export const uploadsService = new UploadsService(prisma, probeQueue);
 export const assetService = new AssetService(prisma);
+export const mediaEventsHub = new MediaEventsHub(eventsSubRedis, assetService);
+export const uploadsService = new UploadsService(
+  prisma,
+  probeQueue,
+  mediaEventsPublisher,
+);
 export const authService = new AuthService(prisma, tokenHelper);
 
 /**
@@ -32,7 +42,7 @@ export const authService = new AuthService(prisma, tokenHelper);
  * он единственный сбрасывает модульный shared, и повторный quit() по нему
  * из этого списка ушёл бы в уже закрытый сокет.
  */
-const queueConnections = [probeProducerRedis];
+const queueConnections = [probeProducerRedis, eventsPubRedis, eventsSubRedis];
 
 async function quitQueueConnections(): Promise<void> {
   for (const connection of queueConnections) {
@@ -45,6 +55,7 @@ async function quitQueueConnections(): Promise<void> {
 }
 
 export async function disconnectApi(): Promise<void> {
+  await mediaEventsHub.close();
   await probeQueue.close();
 
   await quitQueueConnections();

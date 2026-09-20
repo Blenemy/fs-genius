@@ -9,6 +9,7 @@ import { prisma } from "../lib/prisma.js";
 import { getObjectToFile } from "../lib/s3.js";
 import type { ProbeJobData } from "../shared/jobs.js";
 import type { ImageQueue } from "../queues/image.queue.js";
+import type { MediaEventsPublisher } from "../lib/media-events-publisher.js";
 import type { AssetKind } from "../generated/prisma/client.js";
 import {
   isDuplicateJobId,
@@ -41,7 +42,10 @@ const VIDEO_MIMES = new Set([
 export class ProbeProcessor {
   private readonly log = childLogger({ processor: "probe" });
 
-  constructor(private readonly imageQueue: ImageQueue) {}
+  constructor(
+    private readonly imageQueue: ImageQueue,
+    private readonly mediaEvents: MediaEventsPublisher,
+  ) {}
 
   async process(job: BullJob<ProbeJobData>): Promise<void> {
     this.log.info({ id: job.id, data: job.data }, "picked up");
@@ -58,6 +62,11 @@ export class ProbeProcessor {
 
       await markJobRunning(job.data.jobId, job.attemptsMade);
       await markAssetProcessing(asset.id);
+      await this.mediaEvents.publish({
+        userId: asset.userId,
+        assetId: asset.id,
+        status: "PROCESSING",
+      });
 
       const originalPath = path.join(tmpDir, "original");
       await getObjectToFile(asset.storageKey, originalPath);
@@ -107,7 +116,12 @@ export class ProbeProcessor {
         err instanceof UnrecoverableError ||
         isFatalJobError(err, job.attemptsMade, job.opts.attempts);
       if (fatal) {
-        await this.persistFailure(job.data.jobId, job.data.assetId, err);
+        await this.persistFailure(
+          job.data.jobId,
+          job.data.assetId,
+          job.data.userId,
+          err,
+        );
       }
       if (err instanceof UnrecoverableError) throw err;
       if (isUnreadableMedia(err)) {
@@ -161,6 +175,7 @@ export class ProbeProcessor {
   private async persistFailure(
     jobId: string,
     assetId: string,
+    userId: string,
     err: unknown,
   ): Promise<void> {
     try {
@@ -173,6 +188,11 @@ export class ProbeProcessor {
     } catch (updateErr) {
       this.log.warn({ err: updateErr, assetId }, "failed to persist asset error");
     }
+    await this.mediaEvents.publish({
+      userId,
+      assetId,
+      status: "FAILED",
+    });
   }
 
   private async readImageMeta(originalPath: string) {

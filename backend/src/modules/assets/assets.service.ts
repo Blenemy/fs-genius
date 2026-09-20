@@ -1,6 +1,31 @@
+import type { AssetStatus, DerivKind } from "../../generated/prisma/client.js";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../middleware/error.js";
 import { deleteObject, presignGet } from "../../lib/s3.js";
+
+export type AssetClient = {
+  id: string;
+  originalName: string;
+  contentType: string;
+  status: AssetStatus;
+  url: string;
+  createdAt: Date;
+};
+
+type AssetRow = {
+  id: string;
+  userId: string;
+  originalName: string;
+  contentType: string;
+  status: AssetStatus;
+  storageKey: string;
+  createdAt: Date;
+  derivatives: {
+    kind: DerivKind;
+    storageKey: string;
+    mimeType: string;
+  }[];
+};
 
 export class AssetService {
   constructor(private readonly prisma: PrismaClient) {}
@@ -12,23 +37,27 @@ export class AssetService {
       orderBy: { createdAt: "desc" },
     });
 
-    const assets = await Promise.all(
-      rows.map(async (asset) => {
-        const thumb = asset.derivatives.find((d) => d.kind === "THUMBNAIL");
-        const url = await presignGet(thumb?.storageKey ?? asset.storageKey);
+    return Promise.all(rows.map((row) => this.toClient(row)));
+  }
 
-        return {
-          id: asset.id,
-          originalName: asset.originalName,
-          contentType: thumb?.mimeType ?? asset.contentType,
-          status: asset.status,
-          url,
-          createdAt: asset.createdAt,
-        };
-      }),
-    );
+  async getProcessingAssets(userId: string) {
+    const rows = await this.prisma.asset.findMany({
+      where: { userId, status: "PROCESSING" },
+      include: { derivatives: true },
+      orderBy: { createdAt: "desc" },
+    });
 
-    return assets;
+    return Promise.all(rows.map((row) => this.toClient(row)));
+  }
+
+  async getClientAsset(assetId: string, userId: string) {
+    const row = await this.prisma.asset.findUnique({
+      where: { id: assetId },
+      include: { derivatives: true },
+    });
+
+    if (!row || row.userId !== userId) return null;
+    return this.toClient(row);
   }
 
   async deleteAsset(assetId: string, userId: string) {
@@ -57,5 +86,19 @@ export class AssetService {
     }
 
     await this.prisma.asset.delete({ where: { id: assetId } });
+  }
+
+  private async toClient(asset: AssetRow): Promise<AssetClient> {
+    const thumb = asset.derivatives.find((d) => d.kind === "THUMBNAIL");
+    const url = await presignGet(thumb?.storageKey ?? asset.storageKey);
+
+    return {
+      id: asset.id,
+      originalName: asset.originalName,
+      contentType: thumb?.mimeType ?? asset.contentType,
+      status: asset.status,
+      url,
+      createdAt: asset.createdAt,
+    };
   }
 }

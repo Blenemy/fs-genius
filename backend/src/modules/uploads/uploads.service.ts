@@ -2,12 +2,14 @@ import type { PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../middleware/error.js";
 import { headObject, isS3Configured, presignPut } from "../../lib/s3.js";
 import type { ProbeQueue } from "../../queues/probe.queue.js";
+import type { MediaEventsPublisher } from "../../lib/media-events-publisher.js";
 import { extensionFor, type PresignInput } from "./uploads.schema.js";
 
 export class UploadsService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly probeQueue: ProbeQueue,
+    private readonly mediaEvents: MediaEventsPublisher,
   ) {}
 
   async presign(input: PresignInput, userId: string) {
@@ -112,6 +114,12 @@ export class UploadsService {
     await this.prisma.job.update({
       where: { id: mediaJob.id },
       data: { queueJobId: String(queued.id) },
+    });
+
+    await this.mediaEvents.publish({
+      userId: updated.userId,
+      assetId: updated.id,
+      status: "PROCESSING",
     });
 
     return { assetId: updated.id, status: updated.status };

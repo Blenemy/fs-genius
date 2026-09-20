@@ -8,6 +8,7 @@ interface LibraryState {
   deletingId: string | null;
   error: string | null;
   fetchAssets: (opts?: { silent?: boolean }) => Promise<void>;
+  applyAsset: (asset: Asset) => void;
   deleteAsset: (assetId: string) => Promise<void>;
 }
 
@@ -31,6 +32,19 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           err instanceof Error ? err.message : 'Не удалось загрузить библиотеку',
       });
     }
+  },
+
+  applyAsset: (asset) => {
+    const current = get().assets;
+    const index = current.findIndex((row) => row.id === asset.id);
+    if (index === -1) {
+      set({ assets: [asset, ...current] });
+      return;
+    }
+
+    const next = [...current];
+    next[index] = { ...next[index], ...asset };
+    set({ assets: next });
   },
 
   deleteAsset: async (assetId) => {

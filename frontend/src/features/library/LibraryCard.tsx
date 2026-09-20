@@ -71,7 +71,7 @@ export function LibraryCard() {
                   href={asset.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="bg-muted ring-foreground/10 hover:ring-primary/50 block aspect-square overflow-hidden rounded-xl ring-1 transition-all duration-200"
+                  className="bg-muted ring-foreground/10 hover:ring-primary/50 relative block aspect-square overflow-hidden rounded-xl ring-1 transition-all duration-200"
                 >
                   <img
                     src={asset.url}
@@ -79,6 +79,16 @@ export function LibraryCard() {
                     loading="lazy"
                     className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
                   />
+                  {asset.status === "PROCESSING" && (
+                    <div className="absolute inset-0 grid place-items-center bg-black/45">
+                      <Loader2 className="size-6 animate-spin text-white" />
+                    </div>
+                  )}
+                  {asset.status === "FAILED" && (
+                    <div className="absolute inset-0 grid place-items-center bg-black/55 px-2 text-center">
+                      <p className="text-xs text-white">Не обработано</p>
+                    </div>
+                  )}
                 </a>
 
                 {/* Подпись поверх картинки: имя и дата не отнимают высоту у сетки. */}

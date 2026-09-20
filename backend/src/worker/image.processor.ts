@@ -17,9 +17,12 @@ import {
   markJobFailed,
   markJobRunning,
 } from "./media-status.js";
+import type { MediaEventsPublisher } from "../lib/media-events-publisher.js";
 
 export class ImageProcessor {
   private readonly log = childLogger({ processor: "image" });
+
+  constructor(private readonly mediaEvents: MediaEventsPublisher) {}
 
   async process(job: Job<ImageJobData>): Promise<void> {
     this.log.info({ id: job.id, data: job.data }, "picked up");
@@ -70,6 +73,11 @@ export class ImageProcessor {
 
       await markJobDone(jobId);
       await markAssetReady(asset.id);
+      await this.mediaEvents.publish({
+        userId: asset.userId,
+        assetId: asset.id,
+        status: "READY",
+      });
 
       this.log.info({ thumbKey, previewKey }, "derivatives stored");
     } catch (err) {
@@ -77,7 +85,7 @@ export class ImageProcessor {
         err instanceof UnrecoverableError ||
         isFatalJobError(err, job.attemptsMade, job.opts.attempts);
       if (fatal) {
-        await this.persistFailure(jobId, job.data.assetId, err);
+        await this.persistFailure(jobId, job.data.assetId, job.data.userId, err);
       }
       if (err instanceof UnrecoverableError) throw err;
       if (isUnreadableMedia(err)) {
@@ -107,6 +115,7 @@ export class ImageProcessor {
   private async persistFailure(
     jobId: string | undefined,
     assetId: string,
+    userId: string,
     err: unknown,
   ): Promise<void> {
     if (jobId) {
@@ -121,6 +130,11 @@ export class ImageProcessor {
     } catch (updateErr) {
       this.log.warn({ err: updateErr, assetId }, "failed to persist asset error");
     }
+    await this.mediaEvents.publish({
+      userId,
+      assetId,
+      status: "FAILED",
+    });
   }
 
   private saveDerivative(

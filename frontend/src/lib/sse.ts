@@ -22,7 +22,9 @@ class SseClient {
   private ensureOpen() {
     if (this.source) return;
 
-    this.source = new EventSource(`${API_URL}/api/events`);
+    this.source = new EventSource(`${API_URL}/api/events`, {
+      withCredentials: true,
+    });
     this.source.onmessage = (event) => {
       try {
         const data: unknown = JSON.parse(event.data);
