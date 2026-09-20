@@ -131,6 +131,12 @@ enum AssetStatus {
   UPLOADED
 }
 
+/// Тип файла по содержимому, не по расширению. Ставит стадия probe.
+enum AssetKind {
+  IMAGE
+  VIDEO
+}
+
 /// Что делает задача. Очередь BullMQ выбирается по типу, не наоборот.
 enum JobType {
   PROBE
@@ -167,6 +173,15 @@ model Asset {
   sizeBytes    BigInt
   storageKey   String      @unique
   status       AssetStatus @default(PENDING)
+
+  /// Поля ниже заполняет probe, не клиент и не presign.
+  kind       AssetKind?
+  width      Int?
+  height     Int?
+  durationMs Int?
+  codec      String?    @db.VarChar(50)
+  bitrate    Int?
+
   createdAt    DateTime    @default(now())
 
   jobs        Job[]

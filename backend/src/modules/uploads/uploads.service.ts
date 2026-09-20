@@ -1,13 +1,13 @@
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../middleware/error.js";
 import { headObject, isS3Configured, presignPut } from "../../lib/s3.js";
-import type { ImageQueue } from "../../queues/image.queue.js";
+import type { ProbeQueue } from "../../queues/probe.queue.js";
 import { extensionFor, type PresignInput } from "./uploads.schema.js";
 
 export class UploadsService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly imageQueue: ImageQueue,
+    private readonly probeQueue: ProbeQueue,
   ) {}
 
   async presign(input: PresignInput, userId: string) {
@@ -89,14 +89,29 @@ export class UploadsService {
       );
     }
 
-    const updated = await this.prisma.asset.update({
-      where: { id: asset.id },
-      data: { status: "UPLOADED" },
-    });
+    const [updated, mediaJob] = await this.prisma.$transaction([
+      this.prisma.asset.update({
+        where: { id: asset.id },
+        data: { status: "UPLOADED" },
+      }),
+      this.prisma.job.create({
+        data: {
+          assetId: asset.id,
+          type: "PROBE",
+          status: "QUEUED",
+        },
+      }),
+    ]);
 
-    await this.imageQueue.add({
+    const queued = await this.probeQueue.add({
       assetId: updated.id,
       userId: updated.userId,
+      jobId: mediaJob.id,
+    });
+
+    await this.prisma.job.update({
+      where: { id: mediaJob.id },
+      data: { queueJobId: String(queued.id) },
     });
 
     return { assetId: updated.id, status: updated.status };

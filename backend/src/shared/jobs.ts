@@ -1,5 +1,7 @@
-export type LearnJobData = {
-  foo: string;
+export type ProbeJobData = {
+  assetId: string;
+  userId: string;
+  jobId: string;
 };
 
 export type ImageJobData = {

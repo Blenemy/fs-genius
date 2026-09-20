@@ -3,22 +3,25 @@ import { childLogger } from "./lib/logger.js";
 import { createRedis } from "./lib/redis.js";
 import { disconnectDb } from "./lib/prisma.js";
 import { QUEUE_NAMES } from "./shared/queue-names.js";
-import type { ImageJobData, LearnJobData } from "./shared/jobs.js";
-import { LearnProcessor } from "./worker/learn.processor.js";
+import type { ImageJobData, ProbeJobData } from "./shared/jobs.js";
+import { ProbeProcessor } from "./worker/probe.processor.js";
 import { ImageProcessor } from "./worker/image.processor.js";
+import { ImageQueue } from "./queues/image.queue.js";
 
 const log = childLogger({ service: "worker" });
 
-const learnRedis = createRedis("worker-learn", "queue");
+const probeRedis = createRedis("worker-probe", "queue");
 const imageRedis = createRedis("worker-image", "queue");
+const imageProducerRedis = createRedis("worker-image-producer", "queue");
 
-const learnProcessor = new LearnProcessor();
+const imageQueue = new ImageQueue(imageProducerRedis);
+const probeProcessor = new ProbeProcessor(imageQueue);
 const imageProcessor = new ImageProcessor();
 
-const learnWorker = new Worker<LearnJobData>(
-  QUEUE_NAMES.learn,
-  (job) => learnProcessor.process(job),
-  { connection: learnRedis, concurrency: 1 },
+const probeWorker = new Worker<ProbeJobData>(
+  QUEUE_NAMES.mediaProbe,
+  (job) => probeProcessor.process(job),
+  { connection: probeRedis, concurrency: 4, lockDuration: 30_000 },
 );
 
 const imageWorker = new Worker<ImageJobData>(
@@ -39,25 +42,27 @@ function attachLogs(worker: Worker, queueName: string) {
   });
 }
 
-attachLogs(learnWorker, QUEUE_NAMES.learn);
+attachLogs(probeWorker, QUEUE_NAMES.mediaProbe);
 attachLogs(imageWorker, QUEUE_NAMES.mediaImage);
 
-log.info({ queue: QUEUE_NAMES.learn }, "worker listening");
+log.info({ queue: QUEUE_NAMES.mediaProbe }, "media probe worker listening");
 log.info({ queue: QUEUE_NAMES.mediaImage }, "media image worker listening");
 
 async function shutdown(signal: string): Promise<void> {
   log.info(`got ${signal}, shutting down worker`);
 
   try {
-    await learnWorker.close();
+    await probeWorker.close();
     await imageWorker.close();
+    await imageQueue.close();
   } catch (err) {
     log.error({ err }, "error closing worker");
   }
 
   try {
-    await learnRedis.quit();
+    await probeRedis.quit();
     await imageRedis.quit();
+    await imageProducerRedis.quit();
     await disconnectDb();
   } catch (err) {
     log.error({ err }, "error disconnecting");

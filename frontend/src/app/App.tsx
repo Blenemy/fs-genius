@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Wordmark } from "@/components/brand";
 import { UploadCard } from "@/features/upload/UploadCard";
 import { LibraryCard } from "@/features/library/LibraryCard";
-import { useEventsStore } from "@/stores/events";
 import { useAuthStore } from "@/stores/auth";
 import { useUploadStore } from "@/features/upload/store";
 import { useLibraryStore } from "@/features/library/store";
@@ -12,13 +11,10 @@ import { useLibraryStore } from "@/features/library/store";
 const THUMB_READY_MS = 2500;
 
 export function App() {
-  const connect = useEventsStore((s) => s.connect);
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const uploadPhase = useUploadStore((s) => s.phase);
   const fetchAssets = useLibraryStore((s) => s.fetchAssets);
-
-  useEffect(() => connect(), [connect]);
 
   useEffect(() => {
     if (uploadPhase !== "done") return;

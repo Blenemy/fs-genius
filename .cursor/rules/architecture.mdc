@@ -12,4 +12,4 @@ Follow [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Layer rules: [backend/CONVE
 - One SSE connection per browser tab (`GET /api/events`). No client `setInterval` polling. No WebSocket for progress. No EventSource per card (HTTP/1.1 ~6 connections/origin).
 - New backend code goes in `backend/src/modules/*` as feature folders. New frontend code goes in `frontend/src/features/*`. Do not grow `App.tsx` or `routes/users.ts` as the pattern.
 - Shared queue names and job DTOs live in one module (`backend/src/shared`, `queue-names.ts`). Do not duplicate queue name strings.
-- Learning code (`bullMQjobs`, queue `buttonClick`, QueueCard in App) is sandbox. Product modules must not import it.
+- Do not reintroduce the sandbox learn queue, `POST /api/jobs`, or QueueCard. Product queues only (`media-probe`, `media-image`, later video).

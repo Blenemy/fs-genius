@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE `Asset` ADD COLUMN `bitrate` INTEGER NULL,
+    ADD COLUMN `codec` VARCHAR(50) NULL,
+    ADD COLUMN `durationMs` INTEGER NULL,
+    ADD COLUMN `height` INTEGER NULL,
+    ADD COLUMN `kind` ENUM('IMAGE', 'VIDEO') NULL,
+    ADD COLUMN `width` INTEGER NULL;

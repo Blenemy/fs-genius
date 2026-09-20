@@ -8,7 +8,6 @@ import { corsOrigins, env } from "./config/env.js";
 import { checkOrigin } from "./middleware/auth.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.js";
 import { healthRouter } from "./modules/health/health.routes.js";
-import { learnRouter } from "./modules/learn/learn.routes.js";
 import { usersRouter } from "./modules/users/users.routes.js";
 import { uploadRouter } from "./modules/uploads/uploads.routes.js";
 import { assetsRouter } from "./modules/assets/assets.routes.js";
@@ -32,7 +31,6 @@ export function createApp(): Express {
   // app.use(pinoHttp({ logger }));
 
   app.use("/api", healthRouter);
-  app.use("/api", learnRouter);
   app.use("/api", usersRouter);
   app.use("/api", uploadRouter);
   app.use("/api", assetsRouter);

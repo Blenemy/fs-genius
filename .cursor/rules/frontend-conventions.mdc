@@ -12,4 +12,4 @@ Follow [frontend/CONVENTIONS.md](frontend/CONVENTIONS.md).
 - Zustand: `authStore` (profile and session status, no tokens), `uploadStore` (browser PUT), `assetsStore` (library + SSE patches), `eventsStore` (single EventSource). Both tokens are httpOnly cookies; the client never sees them.
 - One `EventSource` for the whole app. Cards subscribe to the store. No polling `GET` on an interval. No WebSocket for job progress.
 - API errors: show `error.message`, branch on `error.code`. Uploads: presign → PUT to storage → complete, never through the api body.
-- Functional components only. Do not extend the sandbox QueueCard in `App.tsx` into product features.
+- Functional components only. Do not grow `App.tsx` with sandbox widgets.
