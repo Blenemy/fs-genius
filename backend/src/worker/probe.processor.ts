@@ -10,6 +10,16 @@ import { getObjectToFile } from "../lib/s3.js";
 import type { ProbeJobData } from "../shared/jobs.js";
 import type { ImageQueue } from "../queues/image.queue.js";
 import type { AssetKind } from "../generated/prisma/client.js";
+import {
+  isDuplicateJobId,
+  isFatalJobError,
+  isUnreadableMedia,
+  markAssetFailed,
+  markAssetProcessing,
+  markJobDone,
+  markJobFailed,
+  markJobRunning,
+} from "./media-status.js";
 
 /** Default sharp cap is ~268 MP; a 2 MB file can still unpack past that. */
 const LIMIT_INPUT_PIXELS = 64_000_000;
@@ -38,8 +48,6 @@ export class ProbeProcessor {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `probe-${job.id}-`));
 
     try {
-      await this.markRunning(job);
-
       const asset = await prisma.asset.findUnique({
         where: { id: job.data.assetId },
       });
@@ -47,6 +55,9 @@ export class ProbeProcessor {
       if (!asset) {
         throw new UnrecoverableError("Asset not found");
       }
+
+      await markJobRunning(job.data.jobId, job.attemptsMade);
+      await markAssetProcessing(asset.id);
 
       const originalPath = path.join(tmpDir, "original");
       await getObjectToFile(asset.storageKey, originalPath);
@@ -62,7 +73,7 @@ export class ProbeProcessor {
           where: { id: asset.id },
           data: { kind: "VIDEO" },
         });
-        await this.markDone(job.data.jobId);
+        await markJobDone(job.data.jobId);
         this.log.info(
           { assetId: asset.id, mime },
           "video probed; transcode queue not wired yet",
@@ -85,16 +96,8 @@ export class ProbeProcessor {
         },
       });
 
-      try {
-        await this.imageQueue.add({
-          assetId: asset.id,
-          userId: asset.userId,
-        });
-      } catch (err) {
-        if (!isDuplicateJobId(err)) throw err;
-      }
-
-      await this.markDone(job.data.jobId);
+      await this.enqueueImageVariants(asset.id, asset.userId);
+      await markJobDone(job.data.jobId);
       this.log.info(
         { assetId: asset.id, width: meta.width, height: meta.height },
         "image probed",
@@ -102,9 +105,10 @@ export class ProbeProcessor {
     } catch (err) {
       const fatal =
         err instanceof UnrecoverableError ||
-        isUnreadableMedia(err) ||
-        job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
-      if (fatal) await this.markFailed(job.data.jobId, err);
+        isFatalJobError(err, job.attemptsMade, job.opts.attempts);
+      if (fatal) {
+        await this.persistFailure(job.data.jobId, job.data.assetId, err);
+      }
       if (err instanceof UnrecoverableError) throw err;
       if (isUnreadableMedia(err)) {
         throw new UnrecoverableError(
@@ -114,6 +118,60 @@ export class ProbeProcessor {
       throw err;
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  }
+
+  private async enqueueImageVariants(assetId: string, userId: string) {
+    const existing = await prisma.job.findFirst({
+      where: {
+        assetId,
+        type: "IMAGE_VARIANTS",
+        status: { in: ["QUEUED", "RUNNING", "DONE"] },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const imageJob =
+      existing ??
+      (await prisma.job.create({
+        data: {
+          assetId,
+          type: "IMAGE_VARIANTS",
+          status: "QUEUED",
+        },
+      }));
+
+    try {
+      const queued = await this.imageQueue.add({
+        assetId,
+        userId,
+        jobId: imageJob.id,
+      });
+      if (!imageJob.queueJobId) {
+        await prisma.job.update({
+          where: { id: imageJob.id },
+          data: { queueJobId: String(queued.id) },
+        });
+      }
+    } catch (err) {
+      if (!isDuplicateJobId(err)) throw err;
+    }
+  }
+
+  private async persistFailure(
+    jobId: string,
+    assetId: string,
+    err: unknown,
+  ): Promise<void> {
+    try {
+      await markJobFailed(jobId, err);
+    } catch (updateErr) {
+      this.log.warn({ err: updateErr, jobId }, "failed to persist job error");
+    }
+    try {
+      await markAssetFailed(assetId);
+    } catch (updateErr) {
+      this.log.warn({ err: updateErr, assetId }, "failed to persist asset error");
     }
   }
 
@@ -135,61 +193,4 @@ export class ProbeProcessor {
       codec: meta.format ?? null,
     };
   }
-
-  private markRunning(job: BullJob<ProbeJobData>) {
-    return prisma.job.update({
-      where: { id: job.data.jobId },
-      data: {
-        status: "RUNNING",
-        attempts: job.attemptsMade + 1,
-        startedAt: new Date(),
-        error: null,
-      },
-    });
-  }
-
-  private markDone(jobId: string) {
-    return prisma.job.update({
-      where: { id: jobId },
-      data: {
-        status: "DONE",
-        progress: 100,
-        finishedAt: new Date(),
-        error: null,
-      },
-    });
-  }
-
-  private async markFailed(jobId: string, err: unknown): Promise<void> {
-    const message = err instanceof Error ? err.message : String(err);
-    try {
-      await prisma.job.update({
-        where: { id: jobId },
-        data: {
-          status: "FAILED",
-          error: message.slice(0, 4000),
-          finishedAt: new Date(),
-        },
-      });
-    } catch (updateErr) {
-      this.log.warn({ err: updateErr, jobId }, "failed to persist job error");
-    }
-  }
-}
-
-function isDuplicateJobId(err: unknown): boolean {
-  return err instanceof Error && /already exists/i.test(err.message);
-}
-
-function isUnreadableMedia(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  return (
-    msg.includes("unsupported") ||
-    msg.includes("corrupt") ||
-    msg.includes("limitinputpixels") ||
-    msg.includes("too large") ||
-    msg.includes("input file is missing") ||
-    msg.includes("vips")
-  );
 }

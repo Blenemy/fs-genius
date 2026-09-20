@@ -129,6 +129,9 @@ model Upload {
 enum AssetStatus {
   PENDING
   UPLOADED
+  PROCESSING
+  READY
+  FAILED
 }
 
 /// Тип файла по содержимому, не по расширению. Ставит стадия probe.
@@ -188,6 +191,7 @@ model Asset {
   derivatives Derivative[]
 
   @@index([userId])
+  @@index([status])
 }
 
 /// Единица работы над активом. Переживает рестарт воркера — в отличие от

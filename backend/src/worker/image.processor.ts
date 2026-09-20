@@ -8,6 +8,15 @@ import fs from "node:fs/promises";
 import { prisma } from "../lib/prisma.js";
 import { getObjectToFile, putObjectToS3 } from "../lib/s3.js";
 import sharp from "sharp";
+import {
+  isFatalJobError,
+  isUnreadableMedia,
+  markAssetFailed,
+  markAssetReady,
+  markJobDone,
+  markJobFailed,
+  markJobRunning,
+} from "./media-status.js";
 
 export class ImageProcessor {
   private readonly log = childLogger({ processor: "image" });
@@ -15,6 +24,7 @@ export class ImageProcessor {
   async process(job: Job<ImageJobData>): Promise<void> {
     this.log.info({ id: job.id, data: job.data }, "picked up");
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `img-${job.id}-`));
+    let jobId = job.data.jobId;
 
     try {
       const asset = await prisma.asset.findUnique({
@@ -22,9 +32,11 @@ export class ImageProcessor {
       });
 
       if (!asset) {
-        this.log.error({ id: job.id, data: job.data }, "asset not found");
         throw new UnrecoverableError("Asset not found");
       }
+
+      jobId = await this.resolveJobId(job.data);
+      await markJobRunning(jobId, job.attemptsMade);
 
       const originalPath = path.join(tmpDir, "original");
       await getObjectToFile(asset.storageKey, originalPath);
@@ -53,17 +65,67 @@ export class ImageProcessor {
       await putObjectToS3(thumbKey, thumbPath, "image/webp");
       await putObjectToS3(previewKey, previewPath, "image/webp");
 
-      await this.saveDerivative(asset.id, "THUMBNAIL", thumbKey, thumb);
-      await this.saveDerivative(asset.id, "PREVIEW", previewKey, preview);
+      await this.saveDerivative(asset.id, jobId, "THUMBNAIL", thumbKey, thumb);
+      await this.saveDerivative(asset.id, jobId, "PREVIEW", previewKey, preview);
+
+      await markJobDone(jobId);
+      await markAssetReady(asset.id);
 
       this.log.info({ thumbKey, previewKey }, "derivatives stored");
+    } catch (err) {
+      const fatal =
+        err instanceof UnrecoverableError ||
+        isFatalJobError(err, job.attemptsMade, job.opts.attempts);
+      if (fatal) {
+        await this.persistFailure(jobId, job.data.assetId, err);
+      }
+      if (err instanceof UnrecoverableError) throw err;
+      if (isUnreadableMedia(err)) {
+        throw new UnrecoverableError(
+          err instanceof Error ? err.message : "Unreadable media",
+        );
+      }
+      throw err;
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   }
 
+  private async resolveJobId(data: ImageJobData): Promise<string> {
+    if (data.jobId) return data.jobId;
+
+    const created = await prisma.job.create({
+      data: {
+        assetId: data.assetId,
+        type: "IMAGE_VARIANTS",
+        status: "RUNNING",
+      },
+    });
+    return created.id;
+  }
+
+  private async persistFailure(
+    jobId: string | undefined,
+    assetId: string,
+    err: unknown,
+  ): Promise<void> {
+    if (jobId) {
+      try {
+        await markJobFailed(jobId, err);
+      } catch (updateErr) {
+        this.log.warn({ err: updateErr, jobId }, "failed to persist job error");
+      }
+    }
+    try {
+      await markAssetFailed(assetId);
+    } catch (updateErr) {
+      this.log.warn({ err: updateErr, assetId }, "failed to persist asset error");
+    }
+  }
+
   private saveDerivative(
     assetId: string,
+    jobId: string,
     kind: DerivKind,
     storageKey: string,
     info: { size: number; width: number; height: number },
@@ -72,6 +134,7 @@ export class ImageProcessor {
       where: { assetId_kind: { assetId, kind } },
       create: {
         assetId,
+        jobId,
         kind,
         storageKey,
         mimeType: "image/webp",
@@ -80,6 +143,7 @@ export class ImageProcessor {
         height: info.height,
       },
       update: {
+        jobId,
         storageKey,
         mimeType: "image/webp",
         sizeBytes: BigInt(info.size),

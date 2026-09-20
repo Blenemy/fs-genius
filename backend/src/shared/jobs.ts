@@ -7,6 +7,7 @@ export type ProbeJobData = {
 export type ImageJobData = {
   assetId: string;
   userId: string;
+  jobId: string;
 };
 
 export type JobCounts = {

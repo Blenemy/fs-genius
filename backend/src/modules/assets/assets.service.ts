@@ -7,7 +7,7 @@ export class AssetService {
 
   async getAssets(userId: string) {
     const rows = await this.prisma.asset.findMany({
-      where: { status: "UPLOADED", userId },
+      where: { userId, status: { not: "PENDING" } },
       include: { derivatives: true },
       orderBy: { createdAt: "desc" },
     });
@@ -21,6 +21,7 @@ export class AssetService {
           id: asset.id,
           originalName: asset.originalName,
           contentType: thumb?.mimeType ?? asset.contentType,
+          status: asset.status,
           url,
           createdAt: asset.createdAt,
         };

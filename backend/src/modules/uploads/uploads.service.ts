@@ -57,7 +57,7 @@ export class UploadsService {
       throw new AppError(404, "NOT_FOUND", "Загрузка не найдена");
     }
 
-    if (asset.status === "UPLOADED") {
+    if (asset.status !== "PENDING") {
       return { assetId: asset.id, status: asset.status };
     }
 
@@ -92,7 +92,7 @@ export class UploadsService {
     const [updated, mediaJob] = await this.prisma.$transaction([
       this.prisma.asset.update({
         where: { id: asset.id },
-        data: { status: "UPLOADED" },
+        data: { status: "PROCESSING" },
       }),
       this.prisma.job.create({
         data: {
