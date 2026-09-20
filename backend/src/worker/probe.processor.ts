@@ -62,11 +62,6 @@ export class ProbeProcessor {
 
       await markJobRunning(job.data.jobId, job.attemptsMade);
       await markAssetProcessing(asset.id);
-      await this.mediaEvents.publish({
-        userId: asset.userId,
-        assetId: asset.id,
-        status: "PROCESSING",
-      });
 
       const originalPath = path.join(tmpDir, "original");
       await getObjectToFile(asset.storageKey, originalPath);
