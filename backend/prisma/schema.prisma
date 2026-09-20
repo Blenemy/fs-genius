@@ -131,6 +131,24 @@ enum AssetStatus {
   UPLOADED
 }
 
+/// Что делает задача. Очередь BullMQ выбирается по типу, не наоборот.
+enum JobType {
+  PROBE
+  IMAGE_VARIANTS
+  VIDEO_TRANSCODE
+  AUDIO_EXTRACT
+}
+
+/// Состояние задачи в MySQL. Прогресс процентами сюда не пишем на каждый тик —
+/// только снимок на смене статуса. Живой процент живёт в Redis.
+enum JobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+  CANCELED
+}
+
 /// Вариант файла после обработки. Байты в MinIO, здесь только ключ и мета.
 enum DerivKind {
   THUMBNAIL
@@ -151,15 +169,47 @@ model Asset {
   status       AssetStatus @default(PENDING)
   createdAt    DateTime    @default(now())
 
+  jobs        Job[]
   derivatives Derivative[]
 
   @@index([userId])
+}
+
+/// Единица работы над активом. Переживает рестарт воркера — в отличие от
+/// задачи BullMQ, которая живёт в Redis. queueJobId связывает две стороны:
+/// отмена ещё в очереди идёт через BullMQ, статус после рестарта — отсюда.
+model Job {
+  id         String    @id @default(cuid())
+  assetId    String
+  asset      Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  type       JobType
+  status     JobStatus @default(QUEUED)
+  /// Снимок 0..100 на переходе статуса, не на каждый процент ffmpeg.
+  progress   Int       @default(0)
+  attempts   Int       @default(0)
+  error      String?   @db.Text
+  presetKey  String?   @db.VarChar(50)
+  /// id задачи в BullMQ. Нужен, чтобы снять её из очереди, пока воркер не взял.
+  queueJobId String?   @db.VarChar(100)
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  derivatives Derivative[]
+
+  @@index([assetId])
+  @@index([status, createdAt])
 }
 
 model Derivative {
   id         String    @id @default(cuid())
   assetId    String
   asset      Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  /// Какая задача породила файл. SetNull: историю джобы можно чистить, байты остаются.
+  jobId      String?
+  job        Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
   kind       DerivKind
   storageKey String    @unique
