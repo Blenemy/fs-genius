@@ -148,10 +148,15 @@ export async function presignGet(
 export async function deleteObject(key: string): Promise<void> {
   const config = assertS3Configured();
 
-  await getS3().send(
-    new DeleteObjectCommand({ Bucket: config.bucket, Key: key }),
-    { abortSignal: AbortSignal.timeout(5000) },
-  );
+  try {
+    await getS3().send(
+      new DeleteObjectCommand({ Bucket: config.bucket, Key: key }),
+      { abortSignal: AbortSignal.timeout(5000) },
+    );
+  } catch (err) {
+    if (isNotFound(err)) return;
+    throw err;
+  }
 }
 
 export async function headObject(

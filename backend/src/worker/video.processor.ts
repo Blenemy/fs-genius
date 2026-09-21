@@ -7,7 +7,7 @@ import os from "node:os";
 import fs from "node:fs/promises";
 import sharp from "sharp";
 import { prisma } from "../lib/prisma.js";
-import { getObjectToFile, putObjectToS3 } from "../lib/s3.js";
+import { getObjectToFile, putObjectToS3, deleteObject } from "../lib/s3.js";
 import { fileHasAudio } from "../lib/ffprobe.js";
 import {
   createFfmpegTimeParser,
@@ -149,6 +149,19 @@ export class VideoProcessor {
         } catch (err) {
           this.log.warn({ err, assetId: asset.id }, "audio extract skipped");
         }
+      }
+
+      try {
+        await deleteObject(asset.storageKey);
+        this.log.info(
+          { key: asset.storageKey },
+          "original removed after transcode",
+        );
+      } catch (err) {
+        this.log.warn(
+          { err, key: asset.storageKey },
+          "failed to delete original after transcode",
+        );
       }
 
       await markJobDone(jobId);
