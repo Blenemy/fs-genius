@@ -1,6 +1,5 @@
-# Один образ на api и воркер — различается только команда запуска.
-# ffmpeg сюда НЕ ставится: он понадобится воркеру на этапе M3,
-# и тогда для него заводится отдельный Dockerfile (README §3).
+# Один образ на api, отдельный target на воркер.
+# ffmpeg ставится только в стадии `worker`: HTTP-процесс медиа не трогает.
 
 # ── Зависимости ──────────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS deps
@@ -67,3 +66,14 @@ USER node
 
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
+
+
+# ── Воркер ───────────────────────────────────────────────────────────────────
+# Тот же рантайм плюс ffmpeg/ffprobe. В api-образ их нет: HTTP-процесс
+# медиа не трогает (README §3).
+FROM runtime AS worker
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+USER node
+CMD ["node", "dist/worker.js"]

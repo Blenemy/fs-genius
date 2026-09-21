@@ -9,8 +9,10 @@ import { prisma } from "../lib/prisma.js";
 import { getObjectToFile } from "../lib/s3.js";
 import type { ProbeJobData } from "../shared/jobs.js";
 import type { ImageQueue } from "../queues/image.queue.js";
+import type { VideoQueue } from "../queues/video.queue.js";
 import type { MediaEventsPublisher } from "../lib/media-events-publisher.js";
 import type { AssetKind } from "../generated/prisma/client.js";
+import { probeVideoFile } from "../lib/ffprobe.js";
 import {
   isDuplicateJobId,
   isFatalJobError,
@@ -44,6 +46,7 @@ export class ProbeProcessor {
 
   constructor(
     private readonly imageQueue: ImageQueue,
+    private readonly videoQueue: VideoQueue,
     private readonly mediaEvents: MediaEventsPublisher,
   ) {}
 
@@ -73,14 +76,29 @@ export class ProbeProcessor {
       }
 
       if (VIDEO_MIMES.has(mime)) {
+        const meta = await probeVideoFile(originalPath);
         await prisma.asset.update({
           where: { id: asset.id },
-          data: { kind: "VIDEO" },
+          data: {
+            kind: "VIDEO" satisfies AssetKind,
+            width: meta.width,
+            height: meta.height,
+            durationMs: meta.durationMs,
+            codec: meta.codec,
+            bitrate: meta.bitrate,
+          },
         });
+        await this.enqueueVideoTranscode(asset.id, asset.userId);
         await markJobDone(job.data.jobId);
         this.log.info(
-          { assetId: asset.id, mime },
-          "video probed; transcode queue not wired yet",
+          {
+            assetId: asset.id,
+            mime,
+            width: meta.width,
+            height: meta.height,
+            durationMs: meta.durationMs,
+          },
+          "video probed",
         );
         return;
       }
@@ -159,6 +177,43 @@ export class ProbeProcessor {
       if (!imageJob.queueJobId) {
         await prisma.job.update({
           where: { id: imageJob.id },
+          data: { queueJobId: String(queued.id) },
+        });
+      }
+    } catch (err) {
+      if (!isDuplicateJobId(err)) throw err;
+    }
+  }
+
+  private async enqueueVideoTranscode(assetId: string, userId: string) {
+    const existing = await prisma.job.findFirst({
+      where: {
+        assetId,
+        type: "VIDEO_TRANSCODE",
+        status: { in: ["QUEUED", "RUNNING", "DONE"] },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const videoJob =
+      existing ??
+      (await prisma.job.create({
+        data: {
+          assetId,
+          type: "VIDEO_TRANSCODE",
+          status: "QUEUED",
+        },
+      }));
+
+    try {
+      const queued = await this.videoQueue.add({
+        assetId,
+        userId,
+        jobId: videoJob.id,
+      });
+      if (!videoJob.queueJobId) {
+        await prisma.job.update({
+          where: { id: videoJob.id },
           data: { queueJobId: String(queued.id) },
         });
       }

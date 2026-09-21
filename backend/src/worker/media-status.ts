@@ -70,7 +70,11 @@ export function isUnreadableMedia(err: unknown): boolean {
     msg.includes("limitinputpixels") ||
     msg.includes("too large") ||
     msg.includes("input file is missing") ||
-    msg.includes("vips")
+    msg.includes("vips") ||
+    msg.includes("unreadable video") ||
+    msg.includes("ffmpeg failed") ||
+    msg.includes("no video stream") ||
+    msg.includes("moov atom")
   );
 }
 

@@ -49,6 +49,10 @@ const envSchema = z.object({
   // X-Forwarded-For, меньше = все клиенты выглядят одним адресом.
   // На проде перед api два nginx: хостовый и тот, что в образе web.
   TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(1),
+
+  /** Absolute path when PATH is Git Bash-style and spawn() cannot see the exe. */
+  FFMPEG_PATH: z.string().min(1).optional(),
+  FFPROBE_PATH: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -66,9 +66,13 @@ export class MediaEventsHub {
   }
 
   private async forward(raw: string): Promise<void> {
-    let parsed: { userId?: string; assetId?: string };
+    let parsed: { userId?: string; assetId?: string; progress?: unknown };
     try {
-      parsed = JSON.parse(raw) as { userId?: string; assetId?: string };
+      parsed = JSON.parse(raw) as {
+        userId?: string;
+        assetId?: string;
+        progress?: unknown;
+      };
     } catch {
       this.log.warn("ignored malformed media event");
       return;
@@ -80,7 +84,14 @@ export class MediaEventsHub {
     try {
       const asset = await this.assets.getClientAsset(assetId, userId);
       if (!asset) return;
-      this.hub.emit(userId, { type: "asset", asset });
+      const progress =
+        typeof parsed.progress === "number" && Number.isFinite(parsed.progress)
+          ? Math.min(100, Math.max(0, Math.round(parsed.progress)))
+          : undefined;
+      this.hub.emit(userId, {
+        type: "asset",
+        asset: progress === undefined ? asset : { ...asset, progress },
+      });
     } catch (err) {
       this.log.warn({ err, assetId, userId }, "failed to forward media event");
     }

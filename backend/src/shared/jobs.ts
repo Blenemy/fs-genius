@@ -10,6 +10,12 @@ export type ImageJobData = {
   jobId: string;
 };
 
+export type VideoJobData = {
+  assetId: string;
+  userId: string;
+  jobId: string;
+};
+
 export type JobCounts = {
   waiting: number;
   active: number;

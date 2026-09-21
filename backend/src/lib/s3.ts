@@ -177,10 +177,10 @@ export async function getObjectToFile(
 ): Promise<void> {
   const config = assertS3Configured();
 
-  const { Body } = await getS3().send(
-    new GetObjectCommand({ Bucket: config.bucket, Key: key }),
-    { abortSignal: AbortSignal.timeout(10000) },
-  );
+    const { Body } = await getS3().send(
+      new GetObjectCommand({ Bucket: config.bucket, Key: key }),
+      { abortSignal: AbortSignal.timeout(15 * 60 * 1000) },
+    );
 
   if (!Body) {
     throw new Error("S3 object has no body");
@@ -205,7 +205,7 @@ export async function putObjectToS3(
       Body: readStream,
       ContentType: contentType,
     }),
-    { abortSignal: AbortSignal.timeout(10000) },
+    { abortSignal: AbortSignal.timeout(15 * 60 * 1000) },
   );
 }
 
