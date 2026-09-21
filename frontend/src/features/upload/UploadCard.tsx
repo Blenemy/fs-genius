@@ -1,9 +1,17 @@
-import { useRef, useState } from "react";
-import { Check, ImagePlus, Loader2, RotateCcw, Upload, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Check,
+  Clapperboard,
+  ImagePlus,
+  Loader2,
+  RotateCcw,
+  Upload,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES } from "./types";
+import { ACCEPT_MEDIA, formatBytes, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "./types";
 import { useUploadStore, type UploadPhase } from "./store";
 
 /** Подпись, точка-индикатор и её цвет — всё, чем фаза отличается на экране. */
@@ -16,20 +24,12 @@ const PHASES: Record<UploadPhase, { label: string; tone: string }> = {
   error: { label: "ошибка", tone: "bg-destructive" },
 };
 
-const accept = ALLOWED_IMAGE_TYPES.join(",");
-const maxMb = Math.round(MAX_IMAGE_BYTES / (1024 * 1024));
-
-function formatSize(bytes: number): string {
-  return bytes < 1024 * 1024
-    ? `${(bytes / 1024).toFixed(0)} КБ`
-    : `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
-}
-
 export function UploadCard() {
   const {
     phase,
     file,
     fileName,
+    kind,
     previewUrl,
     progress,
     error,
@@ -38,12 +38,18 @@ export function UploadCard() {
     reset,
   } = useUploadStore();
   const [dragOver, setDragOver] = useState(false);
+  const [previewBroken, setPreviewBroken] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setPreviewBroken(false);
+  }, [previewUrl]);
 
   const busy =
     phase === "presigning" || phase === "uploading" || phase === "completing";
   const showProgress = busy || phase === "done";
   const meta = PHASES[phase];
+  const showPreview = Boolean(previewUrl) && !previewBroken;
 
   function onFiles(list: FileList | null) {
     const next = list?.[0];
@@ -64,7 +70,7 @@ export function UploadCard() {
         <input
           ref={inputRef}
           type="file"
-          accept={accept}
+          accept={ACCEPT_MEDIA}
           disabled={busy}
           className="sr-only"
           onChange={(event) => {
@@ -96,9 +102,18 @@ export function UploadCard() {
             onFiles(event.dataTransfer.files);
           }}
         >
-          {previewUrl ? (
+          {showPreview && kind === "video" ? (
+            <video
+              src={previewUrl ?? undefined}
+              muted
+              playsInline
+              preload="metadata"
+              className="ring-foreground/10 size-18 shrink-0 rounded-xl bg-black object-cover ring-1"
+              onError={() => setPreviewBroken(true)}
+            />
+          ) : showPreview ? (
             <img
-              src={previewUrl}
+              src={previewUrl ?? undefined}
               alt=""
               className="ring-foreground/10 size-18 shrink-0 rounded-xl object-cover ring-1"
             />
@@ -111,17 +126,28 @@ export function UploadCard() {
                   : "bg-muted/80 text-muted-foreground group-hover:text-foreground",
               )}
             >
-              <ImagePlus className="size-7" strokeWidth={1.6} />
+              {kind === "video" ? (
+                <Clapperboard className="size-7" strokeWidth={1.6} />
+              ) : (
+                <ImagePlus className="size-7" strokeWidth={1.6} />
+              )}
             </span>
           )}
 
           <span className="min-w-0 flex-1">
             <span className="line-clamp-2 block text-sm font-medium break-all">
-              {fileName ?? "Перетащи картинку или нажми, чтобы выбрать"}
+              {fileName ?? "Перетащи картинку или видео, или нажми, чтобы выбрать"}
             </span>
             <span className="text-muted-foreground mt-1 block font-mono text-xs">
-              {file ? formatSize(file.size) : `JPEG · PNG · WebP · GIF · до ${maxMb} МБ`}
+              {file
+                ? formatBytes(file.size)
+                : `JPEG · PNG · WebP · GIF · до ${formatBytes(MAX_IMAGE_BYTES)}`}
             </span>
+            {!file && (
+              <span className="text-muted-foreground mt-0.5 block font-mono text-xs">
+                {`MP4 · MOV · WebM · MKV · до ${formatBytes(MAX_VIDEO_BYTES)}`}
+              </span>
+            )}
           </span>
 
           {file && !busy && (
@@ -155,7 +181,9 @@ export function UploadCard() {
               {phase === "done" ? (
                 <>
                   <Check className="text-success size-3.5" />
-                  превью появится в библиотеке через пару секунд
+                  {kind === "video"
+                    ? "ролик в библиотеке. перекодирование займёт время"
+                    : "превью появится в библиотеке через пару секунд"}
                 </>
               ) : (
                 `${progress}%`

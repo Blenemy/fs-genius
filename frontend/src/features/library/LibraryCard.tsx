@@ -1,16 +1,27 @@
-import { useEffect } from "react";
-import { ImageOff, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ImageOff, Loader2, Play, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLibraryStore } from "./store";
+import { isVideoAsset, playbackSrc, posterSrc, type Asset } from "./types";
+import { VideoDialog } from "./VideoDialog";
 
 export function LibraryCard() {
   const { assets, loading, deletingId, error, fetchAssets, deleteAsset } =
     useLibraryStore();
+  const [playerId, setPlayerId] = useState<string | null>(null);
 
   useEffect(() => {
     void fetchAssets();
   }, [fetchAssets]);
+
+  const playing = playerId
+    ? (assets.find((asset) => asset.id === playerId) ?? null)
+    : null;
+
+  useEffect(() => {
+    if (playerId && !playing) setPlayerId(null);
+  }, [playerId, playing]);
 
   return (
     <Card className="[--card-spacing:--spacing(5)]">
@@ -58,7 +69,7 @@ export function LibraryCard() {
               <ImageOff className="size-5" strokeWidth={1.6} />
             </span>
             <p className="text-muted-foreground text-sm">
-              Пока пусто. Залей первую картинку выше.
+              Пока пусто. Залей картинку или видео выше.
             </p>
           </div>
         )}
@@ -67,29 +78,10 @@ export function LibraryCard() {
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {assets.map((asset) => (
               <li key={asset.id} className="group relative">
-                <a
-                  href={asset.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="bg-muted ring-foreground/10 hover:ring-primary/50 relative block aspect-square overflow-hidden rounded-xl ring-1 transition-all duration-200"
-                >
-                  <img
-                    src={asset.url}
-                    alt={asset.originalName}
-                    loading="lazy"
-                    className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
-                  {asset.status === "PROCESSING" && (
-                    <div className="absolute inset-0 grid place-items-center bg-black/45">
-                      <Loader2 className="size-6 animate-spin text-white" />
-                    </div>
-                  )}
-                  {asset.status === "FAILED" && (
-                    <div className="absolute inset-0 grid place-items-center bg-black/55 px-2 text-center">
-                      <p className="text-xs text-white">Не обработано</p>
-                    </div>
-                  )}
-                </a>
+                <AssetFrame
+                  asset={asset}
+                  onPlay={() => setPlayerId(asset.id)}
+                />
 
                 {/* Подпись поверх картинки: имя и дата не отнимают высоту у сетки. */}
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 rounded-b-xl bg-linear-to-t from-black/85 via-black/45 to-transparent px-2.5 pt-8 pb-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
@@ -128,7 +120,123 @@ export function LibraryCard() {
           </ul>
         )}
       </CardContent>
+      {playing && (
+        <VideoDialog asset={playing} onClose={() => setPlayerId(null)} />
+      )}
     </Card>
+  );
+}
+
+function AssetFrame({
+  asset,
+  onPlay,
+}: {
+  asset: Asset;
+  onPlay: () => void;
+}) {
+  const video = isVideoAsset(asset);
+  const poster = posterSrc(asset);
+  const canPlay = asset.status === "READY" && Boolean(playbackSrc(asset));
+  const progress =
+    asset.status === "PROCESSING" && typeof asset.progress === "number"
+      ? Math.min(100, Math.max(0, asset.progress))
+      : null;
+
+  const frameClass =
+    "bg-muted ring-foreground/10 relative block aspect-square w-full overflow-hidden rounded-xl ring-1";
+  const interactiveClass =
+    "hover:ring-primary/50 cursor-pointer border-0 p-0 text-left transition-all duration-200";
+
+  const media = poster ? (
+    <img
+      src={poster}
+      alt={asset.originalName}
+      loading="lazy"
+      className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+    />
+  ) : video ? (
+    <video
+      src={asset.url}
+      muted
+      playsInline
+      preload="metadata"
+      className="pointer-events-none size-full bg-black object-cover"
+    />
+  ) : (
+    <img
+      src={asset.url}
+      alt={asset.originalName}
+      loading="lazy"
+      className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+    />
+  );
+
+  const overlays = (
+    <>
+      {video && (
+        <span className="pointer-events-none absolute top-2 left-2 grid size-7 place-items-center rounded-full bg-black/55 text-white backdrop-blur-sm">
+          <Play className="size-3.5 fill-white" />
+        </span>
+      )}
+      {asset.status === "PROCESSING" && (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/45">
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="size-6 animate-spin text-white" />
+            {progress !== null && (
+              <span className="font-mono text-xs text-white">{progress}%</span>
+            )}
+          </div>
+          {progress !== null && (
+            <div className="absolute inset-x-0 bottom-0 h-1 bg-white/25">
+              <div
+                className="bg-white h-full"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {asset.status === "FAILED" && (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/55 px-2 text-center">
+          <p className="text-xs text-white">Не обработано</p>
+        </div>
+      )}
+    </>
+  );
+
+  if (canPlay) {
+    return (
+      <button
+        type="button"
+        className={`${frameClass} ${interactiveClass}`}
+        aria-label={`Смотреть ${asset.originalName}`}
+        onClick={onPlay}
+      >
+        {media}
+        {overlays}
+      </button>
+    );
+  }
+
+  if (video) {
+    return (
+      <div className={frameClass}>
+        {media}
+        {overlays}
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={asset.url}
+      target="_blank"
+      rel="noreferrer"
+      className={`${frameClass} ${interactiveClass}`}
+    >
+      {media}
+      {overlays}
+    </a>
   );
 }
 

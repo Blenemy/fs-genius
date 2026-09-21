@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { completeUpload, presignUpload, putToStorage } from './api';
-import { isAllowedImage, MAX_IMAGE_BYTES } from './types';
+import {
+  contentTypeFor,
+  formatBytes,
+  mediaKindOf,
+  MAX_IMAGE_BYTES,
+  MAX_VIDEO_BYTES,
+  type MediaKind,
+} from './types';
 
 export type UploadPhase =
   | 'idle'
@@ -14,6 +21,7 @@ interface UploadState {
   phase: UploadPhase;
   file: File | null;
   fileName: string | null;
+  kind: MediaKind | null;
   previewUrl: string | null;
   progress: number;
   assetId: string | null;
@@ -27,12 +35,14 @@ function revokePreview(url: string | null) {
   if (url) URL.revokeObjectURL(url);
 }
 
-function validateImage(file: File): string | null {
-  if (!isAllowedImage(file)) {
-    return `Нужен JPEG, PNG, WebP или GIF. Сейчас: ${file.type || 'неизвестно'}`;
+function validateFile(file: File): string | null {
+  const kind = mediaKindOf(file);
+  if (!kind) {
+    return `Нужна картинка (JPEG, PNG, WebP, GIF) или видео (MP4, MOV, WebM, MKV). Сейчас: ${file.type || 'неизвестно'}`;
   }
-  if (file.size > MAX_IMAGE_BYTES) {
-    return `Файл больше ${Math.round(MAX_IMAGE_BYTES / (1024 * 1024))} МБ`;
+  const limit = kind === 'video' ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+  if (file.size > limit) {
+    return `Файл больше ${formatBytes(limit)}`;
   }
   if (file.size === 0) {
     return 'Пустой файл';
@@ -44,6 +54,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
   phase: 'idle',
   file: null,
   fileName: null,
+  kind: null,
   previewUrl: null,
   progress: 0,
   assetId: null,
@@ -56,6 +67,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
       set({
         file: null,
         fileName: null,
+        kind: null,
         previewUrl: null,
         error: null,
         phase: 'idle',
@@ -65,11 +77,13 @@ export const useUploadStore = create<UploadState>((set, get) => ({
       return;
     }
 
-    const problem = validateImage(file);
-    if (problem) {
+    const kind = mediaKindOf(file);
+    const problem = validateFile(file);
+    if (problem || !kind) {
       set({
         file: null,
         fileName: file.name,
+        kind: null,
         previewUrl: null,
         error: problem,
         phase: 'error',
@@ -82,6 +96,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
     set({
       file,
       fileName: file.name,
+      kind,
       previewUrl: URL.createObjectURL(file),
       error: null,
       phase: 'idle',
@@ -93,7 +108,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
   start: async () => {
     const { file, phase } = get();
     if (!file) {
-      set({ phase: 'error', error: 'Сначала выбери картинку' });
+      set({ phase: 'error', error: 'Сначала выбери файл' });
       return;
     }
     if (phase === 'presigning' || phase === 'uploading' || phase === 'completing') {
@@ -105,7 +120,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
 
       const presign = await presignUpload({
         fileName: file.name,
-        contentType: file.type,
+        contentType: contentTypeFor(file),
         sizeBytes: file.size,
       });
 
@@ -132,6 +147,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
       phase: 'idle',
       file: null,
       fileName: null,
+      kind: null,
       previewUrl: null,
       progress: 0,
       assetId: null,

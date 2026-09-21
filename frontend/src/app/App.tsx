@@ -61,12 +61,12 @@ export function App() {
       <main className="mx-auto w-full max-w-5xl px-4 pt-10 pb-20 sm:px-6">
         <div className="mb-9 max-w-xl">
           <h1 className="font-heading text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-            Загрузи картинку —{" "}
-            <span className="text-primary">превью соберётся само</span>
+            Загрузи картинку или видео —{" "}
+            <span className="text-primary">обработка пойдёт сама</span>
           </h1>
           <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
-            Файл уходит в хранилище напрямую, минуя сервер. Дальше его
-            подхватывает воркер и делает миниатюру и превью.
+            Файл уходит в хранилище напрямую, минуя сервер. Воркер соберёт
+            превью, а для видео — постер и ролик 720p.
           </p>
         </div>
 
