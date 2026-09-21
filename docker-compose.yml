@@ -134,12 +134,14 @@ services:
     profiles: ["app"]
     build:
       context: ./frontend
+    image: media-pipeline-web
     restart: unless-stopped
     ports:
       # - "80:80"
       - "127.0.0.1:8080:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   # MinIO: локальная замена S3 (README §6). Профиль dev — на проде вместо
   # него внешний S3, и поднимать MinIO там не нужно. Профиль не мешает
