@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ImageOff, Loader2, Play, RefreshCw, Trash2 } from "lucide-react";
+import { Ban, ImageOff, Loader2, Play, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLibraryStore } from "./store";
@@ -7,8 +7,16 @@ import { isVideoAsset, playbackSrc, posterSrc, type Asset } from "./types";
 import { VideoDialog } from "./VideoDialog";
 
 export function LibraryCard() {
-  const { assets, loading, deletingId, error, fetchAssets, deleteAsset } =
-    useLibraryStore();
+  const {
+    assets,
+    loading,
+    deletingId,
+    cancelingId,
+    error,
+    fetchAssets,
+    deleteAsset,
+    cancelAsset,
+  } = useLibraryStore();
   const [playerId, setPlayerId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -80,6 +88,7 @@ export function LibraryCard() {
               <li key={asset.id} className="group relative">
                 <AssetFrame
                   asset={asset}
+                  canceling={cancelingId === asset.id}
                   onPlay={() => setPlayerId(asset.id)}
                 />
 
@@ -100,6 +109,27 @@ export function LibraryCard() {
                     })}
                   </p>
                 </div>
+
+                {asset.status === "PROCESSING" && (
+                  <Button
+                    variant="secondary"
+                    size="icon-sm"
+                    className={`absolute top-2 right-11 bg-black/55 text-white backdrop-blur-sm transition-opacity focus-visible:opacity-100 ${
+                      cancelingId === asset.id
+                        ? "opacity-100"
+                        : "opacity-0 group-hover:opacity-100"
+                    }`}
+                    disabled={cancelingId === asset.id}
+                    aria-label={`Отменить ${asset.originalName}`}
+                    onClick={() => void cancelAsset(asset.id)}
+                  >
+                    {cancelingId === asset.id ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <Ban />
+                    )}
+                  </Button>
+                )}
 
                 <Button
                   variant="destructive"
@@ -129,9 +159,11 @@ export function LibraryCard() {
 
 function AssetFrame({
   asset,
+  canceling,
   onPlay,
 }: {
   asset: Asset;
+  canceling: boolean;
   onPlay: () => void;
 }) {
   const video = isVideoAsset(asset);
@@ -182,11 +214,15 @@ function AssetFrame({
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/45">
           <div className="flex flex-col items-center gap-2">
             <Loader2 className="size-6 animate-spin text-white" />
-            {progress !== null && (
-              <span className="font-mono text-xs text-white">{progress}%</span>
+            {canceling ? (
+              <span className="text-xs text-white">Отменяется</span>
+            ) : (
+              progress !== null && (
+                <span className="font-mono text-xs text-white">{progress}%</span>
+              )
             )}
           </div>
-          {progress !== null && (
+          {progress !== null && !canceling && (
             <div className="absolute inset-x-0 bottom-0 h-1 bg-white/25">
               <div
                 className="bg-white h-full"
@@ -199,6 +235,11 @@ function AssetFrame({
       {asset.status === "FAILED" && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/55 px-2 text-center">
           <p className="text-xs text-white">Не обработано</p>
+        </div>
+      )}
+      {asset.status === "CANCELED" && (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/55 px-2 text-center">
+          <p className="text-xs text-white">Отменено</p>
         </div>
       )}
     </>

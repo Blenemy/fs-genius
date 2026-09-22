@@ -16,7 +16,7 @@ export class VideoQueue {
     return this.queue.add(VIDEO_JOB_NAME, data, {
       jobId: data.assetId,
       // A broken file must not eat three half-hour slots.
-      attempts: 1,
+      attempts: 2,
       removeOnComplete: true,
       removeOnFail: { age: 86_400 },
     });
@@ -34,5 +34,9 @@ export class VideoQueue {
 
   async close(): Promise<void> {
     await this.queue.close();
+  }
+
+  async remove(jobId: string): Promise<number> {
+    return this.queue.remove(jobId);
   }
 }

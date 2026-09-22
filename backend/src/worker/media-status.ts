@@ -57,6 +57,17 @@ export async function markAssetFailed(assetId: string) {
   });
 }
 
+export async function markCanceledForAsset(assetId: string) {
+  await prisma.job.updateMany({
+    where: { assetId, status: { in: ["QUEUED", "RUNNING"] } },
+    data: { status: "CANCELED", finishedAt: new Date() },
+  });
+  await prisma.asset.updateMany({
+    where: { id: assetId, status: { in: ["PROCESSING", "UPLOADED"] } },
+    data: { status: "CANCELED" },
+  });
+}
+
 export function isDuplicateJobId(err: unknown): boolean {
   return err instanceof Error && /already exists/i.test(err.message);
 }

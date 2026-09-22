@@ -11,6 +11,7 @@ import { ImageQueue } from "./queues/image.queue.js";
 import { VideoQueue } from "./queues/video.queue.js";
 import { MediaEventsPublisher } from "./lib/media-events-publisher.js";
 import { mediaBin } from "./lib/media-bin.js";
+import { JobCancelStore } from "./lib/job-cancel.js";
 
 const log = childLogger({ service: "worker" });
 
@@ -20,13 +21,30 @@ const videoRedis = createRedis("worker-video", "queue");
 const imageProducerRedis = createRedis("worker-image-producer", "queue");
 const videoProducerRedis = createRedis("worker-video-producer", "queue");
 const eventsPubRedis = createRedis("worker-events-pub", "queue");
+const cancelRedis = createRedis("worker-cancel", "queue");
 
 const imageQueue = new ImageQueue(imageProducerRedis);
 const videoQueue = new VideoQueue(videoProducerRedis);
 const mediaEvents = new MediaEventsPublisher(eventsPubRedis);
-const probeProcessor = new ProbeProcessor(imageQueue, videoQueue, mediaEvents);
-const imageProcessor = new ImageProcessor(mediaEvents);
-const videoProcessor = new VideoProcessor(mediaEvents);
+const jobCancel = new JobCancelStore(cancelRedis);
+const shutdown = new AbortController();
+const probeProcessor = new ProbeProcessor(
+  imageQueue,
+  videoQueue,
+  mediaEvents,
+  jobCancel,
+  shutdown.signal,
+);
+const imageProcessor = new ImageProcessor(
+  mediaEvents,
+  jobCancel,
+  shutdown.signal,
+);
+const videoProcessor = new VideoProcessor(
+  mediaEvents,
+  jobCancel,
+  shutdown.signal,
+);
 
 const probeWorker = new Worker<ProbeJobData>(
   QUEUE_NAMES.mediaProbe,
@@ -70,8 +88,9 @@ log.info({ queue: QUEUE_NAMES.mediaProbe }, "media probe worker listening");
 log.info({ queue: QUEUE_NAMES.mediaImage }, "media image worker listening");
 log.info({ queue: QUEUE_NAMES.mediaVideo }, "media video worker listening");
 
-async function shutdown(signal: string): Promise<void> {
+async function onShutdown(signal: string): Promise<void> {
   log.info(`got ${signal}, shutting down worker`);
+  shutdown.abort();
 
   try {
     await probeWorker.close();
@@ -90,6 +109,7 @@ async function shutdown(signal: string): Promise<void> {
     await imageProducerRedis.quit();
     await videoProducerRedis.quit();
     await eventsPubRedis.quit();
+    await cancelRedis.quit();
     await disconnectDb();
   } catch (err) {
     log.error({ err }, "error disconnecting");
@@ -98,5 +118,5 @@ async function shutdown(signal: string): Promise<void> {
   process.exit(0);
 }
 
-process.on("SIGTERM", () => void shutdown("SIGTERM"));
-process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void onShutdown("SIGTERM"));
+process.on("SIGINT", () => void onShutdown("SIGINT"));

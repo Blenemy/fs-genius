@@ -26,6 +26,14 @@ import {
   markJobRunning,
 } from "./media-status.js";
 import type { MediaEventsPublisher } from "../lib/media-events-publisher.js";
+import type { JobCancelStore } from "../lib/job-cancel.js";
+import {
+  persistCanceled,
+  resolveAbort,
+  startJobAbort,
+  WorkerShutdownError,
+  isJobCanceledError,
+} from "./job-abort.js";
 
 function even(value: number): number {
   return value - (value % 2);
@@ -34,12 +42,17 @@ function even(value: number): number {
 export class VideoProcessor {
   private readonly log = childLogger({ processor: "video" });
 
-  constructor(private readonly mediaEvents: MediaEventsPublisher) {}
+  constructor(
+    private readonly mediaEvents: MediaEventsPublisher,
+    private readonly cancel: JobCancelStore,
+    private readonly shutdown?: AbortSignal,
+  ) {}
 
   async process(job: Job<VideoJobData>): Promise<void> {
     this.log.info({ id: job.id, data: job.data }, "picked up");
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `vid-${job.id}-`));
     let jobId = job.data.jobId;
+    let stopAbort: (() => void) | undefined;
 
     try {
       const asset = await prisma.asset.findUnique({
@@ -54,16 +67,29 @@ export class VideoProcessor {
       this.lastProgressPct = -1;
 
       jobId = await this.resolveJobId(job.data);
+      const abort = startJobAbort(
+        this.cancel,
+        jobId,
+        job.data.assetId,
+        this.shutdown,
+      );
+      stopAbort = abort.stop;
+      const signal = abort.signal;
+
       await markJobRunning(jobId, job.attemptsMade);
+      await this.cancel.throwIf(jobId, job.data.assetId);
 
       const originalPath = path.join(tmpDir, "original");
-      await getObjectToFile(asset.storageKey, originalPath);
+      await getObjectToFile(asset.storageKey, originalPath, signal);
+      await this.cancel.throwIf(jobId, job.data.assetId);
 
       const durationMs = asset.durationMs ?? 0;
-      const hasAudio = await fileHasAudio(originalPath);
-      const seekSec = durationMs > 0 ? (durationMs * 0.1) / 1000 : 0;
+      const hasAudio = await fileHasAudio(originalPath, signal);
+      const seekSec = durationMs > 0 ? (durationMs * 0.2) / 1000 : 0;
       const framePath = path.join(tmpDir, "frame.jpg");
-      await runFfmpeg(extractFrameArgs(originalPath, framePath, seekSec));
+      await runFfmpeg(extractFrameArgs(originalPath, framePath, seekSec), {
+        signal,
+      });
 
       const posterPath = path.join(tmpDir, "poster.jpg");
       const thumbPath = path.join(tmpDir, "thumb_320.webp");
@@ -84,8 +110,8 @@ export class VideoProcessor {
       const videoKey = `${dir}/video_720p.mp4`;
       const audioKey = `${dir}/audio.mp3`;
 
-      await putObjectToS3(posterKey, posterPath, "image/jpeg");
-      await putObjectToS3(thumbKey, thumbPath, "image/webp");
+      await putObjectToS3(posterKey, posterPath, "image/jpeg", signal);
+      await putObjectToS3(thumbKey, thumbPath, "image/webp", signal);
       await this.saveDerivative(
         asset.id,
         jobId,
@@ -103,9 +129,11 @@ export class VideoProcessor {
         thumb,
       );
       await this.publishProgress(asset.userId, asset.id, 0);
+      await this.cancel.throwIf(jobId, job.data.assetId);
 
       const videoPath = path.join(tmpDir, "video_720p.mp4");
       await runFfmpeg(transcode720pArgs(originalPath, videoPath, hasAudio), {
+        signal,
         onStdout: createFfmpegTimeParser((ms) => {
           if (durationMs <= 0) return;
           const percent = Math.min(
@@ -116,7 +144,7 @@ export class VideoProcessor {
         }),
       });
 
-      await putObjectToS3(videoKey, videoPath, "video/mp4");
+      await putObjectToS3(videoKey, videoPath, "video/mp4", signal);
       const videoStat = await fs.stat(videoPath);
       const height = Math.min(720, asset.height ?? 720);
       const width =
@@ -135,8 +163,8 @@ export class VideoProcessor {
       if (hasAudio) {
         const audioPath = path.join(tmpDir, "audio.mp3");
         try {
-          await runFfmpeg(extractMp3Args(originalPath, audioPath));
-          await putObjectToS3(audioKey, audioPath, "audio/mpeg");
+          await runFfmpeg(extractMp3Args(originalPath, audioPath), { signal });
+          await putObjectToS3(audioKey, audioPath, "audio/mpeg", signal);
           const audioStat = await fs.stat(audioPath);
           await this.saveDerivative(
             asset.id,
@@ -147,9 +175,12 @@ export class VideoProcessor {
             { size: audioStat.size, width: null, height: null },
           );
         } catch (err) {
+          if (isJobCanceledError(err)) throw err;
           this.log.warn({ err, assetId: asset.id }, "audio extract skipped");
         }
       }
+
+      await this.cancel.throwIf(jobId, job.data.assetId);
 
       try {
         await deleteObject(asset.storageKey);
@@ -175,6 +206,24 @@ export class VideoProcessor {
 
       this.log.info({ posterKey, thumbKey, videoKey }, "derivatives stored");
     } catch (err) {
+      const abortKind = await resolveAbort(
+        err,
+        this.cancel,
+        jobId,
+        job.data.assetId,
+        this.shutdown,
+      );
+      if (abortKind === "canceled") {
+        await persistCanceled(
+          job.data.assetId,
+          job.data.userId,
+          this.mediaEvents,
+        );
+        return;
+      }
+      if (abortKind === "shutdown") {
+        throw new WorkerShutdownError();
+      }
       const fatal =
         err instanceof UnrecoverableError ||
         isFatalJobError(err, job.attemptsMade, job.opts.attempts);
@@ -194,6 +243,7 @@ export class VideoProcessor {
       }
       throw err;
     } finally {
+      stopAbort?.();
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   }

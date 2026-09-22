@@ -132,6 +132,7 @@ enum AssetStatus {
   PROCESSING
   READY
   FAILED
+  CANCELED
 }
 
 /// Тип файла по содержимому, не по расширению. Ставит стадия probe.

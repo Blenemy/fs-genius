@@ -1,6 +1,7 @@
 import { UnrecoverableError } from "bullmq";
 import { ProcessError, runProcess } from "./run-process.js";
 import { mediaBin } from "./media-bin.js";
+import { JobCanceledError } from "../shared/cancel.js";
 
 export function extractFrameArgs(
   input: string,
@@ -74,11 +75,12 @@ export function extractMp3Args(input: string, output: string): string[] {
 
 export async function runFfmpeg(
   args: readonly string[],
-  opts?: { onStdout?: (chunk: string) => void },
+  opts?: { onStdout?: (chunk: string) => void; signal?: AbortSignal },
 ): Promise<void> {
   try {
     await runProcess(mediaBin("ffmpeg"), args, opts);
   } catch (err) {
+    if (err instanceof JobCanceledError) throw err;
     if (err instanceof ProcessError && err.message.includes("not installed")) {
       throw new UnrecoverableError("ffmpeg is not installed");
     }

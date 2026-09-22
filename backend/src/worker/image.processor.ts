@@ -18,16 +18,28 @@ import {
   markJobRunning,
 } from "./media-status.js";
 import type { MediaEventsPublisher } from "../lib/media-events-publisher.js";
+import type { JobCancelStore } from "../lib/job-cancel.js";
+import {
+  persistCanceled,
+  resolveAbort,
+  startJobAbort,
+  WorkerShutdownError,
+} from "./job-abort.js";
 
 export class ImageProcessor {
   private readonly log = childLogger({ processor: "image" });
 
-  constructor(private readonly mediaEvents: MediaEventsPublisher) {}
+  constructor(
+    private readonly mediaEvents: MediaEventsPublisher,
+    private readonly cancel: JobCancelStore,
+    private readonly shutdown?: AbortSignal,
+  ) {}
 
   async process(job: Job<ImageJobData>): Promise<void> {
     this.log.info({ id: job.id, data: job.data }, "picked up");
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `img-${job.id}-`));
     let jobId = job.data.jobId;
+    let stopAbort: (() => void) | undefined;
 
     try {
       const asset = await prisma.asset.findUnique({
@@ -39,10 +51,21 @@ export class ImageProcessor {
       }
 
       jobId = await this.resolveJobId(job.data);
+      const abort = startJobAbort(
+        this.cancel,
+        jobId,
+        job.data.assetId,
+        this.shutdown,
+      );
+      stopAbort = abort.stop;
+      const signal = abort.signal;
+
       await markJobRunning(jobId, job.attemptsMade);
+      await this.cancel.throwIf(jobId, job.data.assetId);
 
       const originalPath = path.join(tmpDir, "original");
-      await getObjectToFile(asset.storageKey, originalPath);
+      await getObjectToFile(asset.storageKey, originalPath, signal);
+      await this.cancel.throwIf(jobId, job.data.assetId);
       this.log.info({ originalPath }, "original on disk");
 
       const thumbPath = path.join(tmpDir, "thumb_320.webp");
@@ -60,16 +83,19 @@ export class ImageProcessor {
         .toFile(previewPath);
 
       this.log.info({ tmpDir }, "generated thumbs");
+      await this.cancel.throwIf(jobId, job.data.assetId);
 
       const dir = path.posix.dirname(asset.storageKey);
       const thumbKey = `${dir}/thumb_320.webp`;
       const previewKey = `${dir}/preview_1280.webp`;
 
-      await putObjectToS3(thumbKey, thumbPath, "image/webp");
-      await putObjectToS3(previewKey, previewPath, "image/webp");
+      await putObjectToS3(thumbKey, thumbPath, "image/webp", signal);
+      await putObjectToS3(previewKey, previewPath, "image/webp", signal);
 
       await this.saveDerivative(asset.id, jobId, "THUMBNAIL", thumbKey, thumb);
       await this.saveDerivative(asset.id, jobId, "PREVIEW", previewKey, preview);
+
+      await this.cancel.throwIf(jobId, job.data.assetId);
 
       await markJobDone(jobId);
       await markAssetReady(asset.id);
@@ -81,6 +107,24 @@ export class ImageProcessor {
 
       this.log.info({ thumbKey, previewKey }, "derivatives stored");
     } catch (err) {
+      const abortKind = await resolveAbort(
+        err,
+        this.cancel,
+        jobId,
+        job.data.assetId,
+        this.shutdown,
+      );
+      if (abortKind === "canceled") {
+        await persistCanceled(
+          job.data.assetId,
+          job.data.userId,
+          this.mediaEvents,
+        );
+        return;
+      }
+      if (abortKind === "shutdown") {
+        throw new WorkerShutdownError();
+      }
       const fatal =
         err instanceof UnrecoverableError ||
         isFatalJobError(err, job.attemptsMade, job.opts.attempts);
@@ -95,6 +139,7 @@ export class ImageProcessor {
       }
       throw err;
     } finally {
+      stopAbort?.();
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   }

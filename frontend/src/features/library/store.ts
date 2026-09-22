@@ -1,21 +1,24 @@
 import { create } from 'zustand';
-import { deleteAssetRequest, fetchAssetList } from './api';
+import { cancelAssetRequest, deleteAssetRequest, fetchAssetList } from './api';
 import type { Asset } from './types';
 
 interface LibraryState {
   assets: Asset[];
   loading: boolean;
   deletingId: string | null;
+  cancelingId: string | null;
   error: string | null;
   fetchAssets: (opts?: { silent?: boolean }) => Promise<void>;
   applyAsset: (asset: Asset) => void;
   deleteAsset: (assetId: string) => Promise<void>;
+  cancelAsset: (assetId: string) => Promise<void>;
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   assets: [],
   loading: false,
   deletingId: null,
+  cancelingId: null,
   error: null,
 
   fetchAssets: async (opts) => {
@@ -44,7 +47,37 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
     const next = [...current];
     next[index] = { ...next[index], ...asset };
-    set({ assets: next });
+    const terminal =
+      asset.status === 'CANCELED' ||
+      asset.status === 'READY' ||
+      asset.status === 'FAILED';
+    set({
+      assets: next,
+      cancelingId:
+        terminal && get().cancelingId === asset.id ? null : get().cancelingId,
+    });
+  },
+
+  cancelAsset: async (assetId) => {
+    set({ cancelingId: assetId, error: null });
+
+    try {
+      const result = await cancelAssetRequest(assetId);
+      if (!result.pending) {
+        const current = get().assets;
+        set({
+          assets: current.map((asset) =>
+            asset.id === assetId ? { ...asset, status: 'CANCELED' } : asset,
+          ),
+          cancelingId: null,
+        });
+      }
+    } catch (err) {
+      set({
+        cancelingId: null,
+        error: err instanceof Error ? err.message : 'Не удалось отменить',
+      });
+    }
   },
 
   deleteAsset: async (assetId) => {

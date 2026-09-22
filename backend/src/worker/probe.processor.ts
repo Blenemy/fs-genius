@@ -11,6 +11,13 @@ import type { ProbeJobData } from "../shared/jobs.js";
 import type { ImageQueue } from "../queues/image.queue.js";
 import type { VideoQueue } from "../queues/video.queue.js";
 import type { MediaEventsPublisher } from "../lib/media-events-publisher.js";
+import type { JobCancelStore } from "../lib/job-cancel.js";
+import {
+  persistCanceled,
+  resolveAbort,
+  startJobAbort,
+  WorkerShutdownError,
+} from "./job-abort.js";
 import type { AssetKind } from "../generated/prisma/client.js";
 import { probeVideoFile } from "../lib/ffprobe.js";
 import {
@@ -48,11 +55,14 @@ export class ProbeProcessor {
     private readonly imageQueue: ImageQueue,
     private readonly videoQueue: VideoQueue,
     private readonly mediaEvents: MediaEventsPublisher,
+    private readonly cancel: JobCancelStore,
+    private readonly shutdown?: AbortSignal,
   ) {}
 
   async process(job: BullJob<ProbeJobData>): Promise<void> {
     this.log.info({ id: job.id, data: job.data }, "picked up");
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `probe-${job.id}-`));
+    let stopAbort: (() => void) | undefined;
 
     try {
       const asset = await prisma.asset.findUnique({
@@ -63,11 +73,22 @@ export class ProbeProcessor {
         throw new UnrecoverableError("Asset not found");
       }
 
+      const abort = startJobAbort(
+        this.cancel,
+        job.data.jobId,
+        job.data.assetId,
+        this.shutdown,
+      );
+      stopAbort = abort.stop;
+      const signal = abort.signal;
+
       await markJobRunning(job.data.jobId, job.attemptsMade);
       await markAssetProcessing(asset.id);
+      await this.cancel.throwIf(job.data.jobId, job.data.assetId);
 
       const originalPath = path.join(tmpDir, "original");
-      await getObjectToFile(asset.storageKey, originalPath);
+      await getObjectToFile(asset.storageKey, originalPath, signal);
+      await this.cancel.throwIf(job.data.jobId, job.data.assetId);
 
       const detected = await fileTypeFromFile(originalPath);
       const mime = detected?.mime;
@@ -76,7 +97,8 @@ export class ProbeProcessor {
       }
 
       if (VIDEO_MIMES.has(mime)) {
-        const meta = await probeVideoFile(originalPath);
+        const meta = await probeVideoFile(originalPath, signal);
+        await this.cancel.throwIf(job.data.jobId, job.data.assetId);
         await prisma.asset.update({
           where: { id: asset.id },
           data: {
@@ -89,6 +111,7 @@ export class ProbeProcessor {
           },
         });
         await this.enqueueVideoTranscode(asset.id, asset.userId);
+        await this.cancel.throwIf(job.data.jobId, job.data.assetId);
         await markJobDone(job.data.jobId);
         this.log.info(
           {
@@ -118,13 +141,35 @@ export class ProbeProcessor {
         },
       });
 
+      await this.cancel.throwIf(job.data.jobId, job.data.assetId);
       await this.enqueueImageVariants(asset.id, asset.userId);
+      await this.cancel.throwIf(job.data.jobId, job.data.assetId);
       await markJobDone(job.data.jobId);
       this.log.info(
         { assetId: asset.id, width: meta.width, height: meta.height },
         "image probed",
       );
     } catch (err) {
+      const abortKind = await resolveAbort(
+        err,
+        this.cancel,
+        job.data.jobId,
+        job.data.assetId,
+        this.shutdown,
+      );
+      if (abortKind === "canceled") {
+        await this.imageQueue.remove(job.data.assetId).catch(() => 0);
+        await this.videoQueue.remove(job.data.assetId).catch(() => 0);
+        await persistCanceled(
+          job.data.assetId,
+          job.data.userId,
+          this.mediaEvents,
+        );
+        return;
+      }
+      if (abortKind === "shutdown") {
+        throw new WorkerShutdownError();
+      }
       const fatal =
         err instanceof UnrecoverableError ||
         isFatalJobError(err, job.attemptsMade, job.opts.attempts);
@@ -144,6 +189,7 @@ export class ProbeProcessor {
       }
       throw err;
     } finally {
+      stopAbort?.();
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   }

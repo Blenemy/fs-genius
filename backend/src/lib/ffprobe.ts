@@ -1,6 +1,7 @@
 import { UnrecoverableError } from "bullmq";
 import { ProcessError, runProcess } from "./run-process.js";
 import { mediaBin } from "./media-bin.js";
+import { JobCanceledError } from "../shared/cancel.js";
 
 /** README §13: 30 minutes. */
 export const MAX_VIDEO_DURATION_MS = 30 * 60 * 1000;
@@ -29,20 +30,28 @@ type FfprobeJson = {
   format?: { duration?: string; bit_rate?: string };
 };
 
-export async function probeVideoFile(filePath: string): Promise<VideoProbeMeta> {
+export async function probeVideoFile(
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<VideoProbeMeta> {
   let stdout: string;
   try {
-    const result = await runProcess(mediaBin("ffprobe"), [
-      "-v",
-      "error",
-      "-print_format",
-      "json",
-      "-show_format",
-      "-show_streams",
-      filePath,
-    ]);
+    const result = await runProcess(
+      mediaBin("ffprobe"),
+      [
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+        filePath,
+      ],
+      { signal },
+    );
     stdout = result.stdout;
   } catch (err) {
+    if (err instanceof JobCanceledError) throw err;
     if (err instanceof ProcessError && err.message.includes("not installed")) {
       throw new UnrecoverableError("ffprobe is not installed");
     }
@@ -94,21 +103,29 @@ export async function probeVideoFile(filePath: string): Promise<VideoProbeMeta> 
   };
 }
 
-export async function fileHasAudio(filePath: string): Promise<boolean> {
+export async function fileHasAudio(
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
   try {
-    const { stdout } = await runProcess(mediaBin("ffprobe"), [
-      "-v",
-      "error",
-      "-select_streams",
-      "a:0",
-      "-show_entries",
-      "stream=codec_type",
-      "-of",
-      "csv=p=0",
-      filePath,
-    ]);
+    const { stdout } = await runProcess(
+      mediaBin("ffprobe"),
+      [
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=codec_type",
+        "-of",
+        "csv=p=0",
+        filePath,
+      ],
+      { signal },
+    );
     return stdout.trim().length > 0;
-  } catch {
+  } catch (err) {
+    if (err instanceof JobCanceledError) throw err;
     return false;
   }
 }

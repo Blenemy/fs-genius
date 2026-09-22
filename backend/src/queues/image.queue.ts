@@ -35,4 +35,8 @@ export class ImageQueue {
   async close(): Promise<void> {
     await this.queue.close();
   }
+
+  async remove(jobId: string): Promise<number> {
+    return this.queue.remove(jobId);
+  }
 }

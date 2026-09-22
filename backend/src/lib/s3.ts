@@ -179,26 +179,40 @@ export async function headObject(
 export async function getObjectToFile(
   key: string,
   filePath: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const config = assertS3Configured();
+  const abortSignal = composeAbort(signal, 15 * 60 * 1000);
 
-    const { Body } = await getS3().send(
-      new GetObjectCommand({ Bucket: config.bucket, Key: key }),
-      { abortSignal: AbortSignal.timeout(15 * 60 * 1000) },
-    );
+  const { Body } = await getS3().send(
+    new GetObjectCommand({ Bucket: config.bucket, Key: key }),
+    { abortSignal },
+  );
 
   if (!Body) {
     throw new Error("S3 object has no body");
   }
 
   const writeStream = createWriteStream(filePath);
-  await pipeline(Body as NodeJS.ReadableStream, writeStream);
+  const onAbort = () => {
+    writeStream.destroy();
+    if (typeof Body === "object" && Body && "destroy" in Body) {
+      (Body as { destroy: () => void }).destroy();
+    }
+  };
+  signal?.addEventListener("abort", onAbort);
+  try {
+    await pipeline(Body as NodeJS.ReadableStream, writeStream);
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+  }
 }
 
 export async function putObjectToS3(
   key: string,
   filePath: string,
   contentType: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const config = assertS3Configured();
 
@@ -210,8 +224,13 @@ export async function putObjectToS3(
       Body: readStream,
       ContentType: contentType,
     }),
-    { abortSignal: AbortSignal.timeout(15 * 60 * 1000) },
+    { abortSignal: composeAbort(signal, 15 * 60 * 1000) },
   );
+}
+
+function composeAbort(user: AbortSignal | undefined, ms: number): AbortSignal {
+  const timeout = AbortSignal.timeout(ms);
+  return user ? AbortSignal.any([user, timeout]) : timeout;
 }
 
 function isNotFound(err: unknown): boolean {

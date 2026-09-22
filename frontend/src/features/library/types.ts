@@ -3,7 +3,8 @@ export type AssetStatus =
   | 'UPLOADED'
   | 'PROCESSING'
   | 'READY'
-  | 'FAILED';
+  | 'FAILED'
+  | 'CANCELED';
 
 export type AssetKind = 'IMAGE' | 'VIDEO';
 
