@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { cancelAssetRequest, deleteAssetRequest, fetchAssetList } from './api';
+import { cancelAssetRequest, deleteAssetRequest, fetchAssetList, restartAssetRequest } from './api';
 import type { Asset } from './types';
 
 interface LibraryState {
@@ -7,11 +7,13 @@ interface LibraryState {
   loading: boolean;
   deletingId: string | null;
   cancelingId: string | null;
+  restartingId: string | null;
   error: string | null;
   fetchAssets: (opts?: { silent?: boolean }) => Promise<void>;
   applyAsset: (asset: Asset) => void;
   deleteAsset: (assetId: string) => Promise<void>;
   cancelAsset: (assetId: string) => Promise<void>;
+  restartAsset: (assetId: string) => Promise<void>;
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
@@ -19,6 +21,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   loading: false,
   deletingId: null,
   cancelingId: null,
+  restartingId: null,
   error: null,
 
   fetchAssets: async (opts) => {
@@ -76,6 +79,28 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       set({
         cancelingId: null,
         error: err instanceof Error ? err.message : 'Не удалось отменить',
+      });
+    }
+  },
+
+  restartAsset: async (assetId) => {
+    set({ restartingId: assetId, error: null });
+
+    try {
+      await restartAssetRequest(assetId);
+      const current = get().assets;
+      set({
+        assets: current.map((asset) =>
+          asset.id === assetId
+            ? { ...asset, status: 'PROCESSING', progress: 0 }
+            : asset,
+        ),
+        restartingId: null,
+      });
+    } catch (err) {
+      set({
+        restartingId: null,
+        error: err instanceof Error ? err.message : 'Не удалось запустить снова',
       });
     }
   },

@@ -37,6 +37,10 @@ export class JobCancelStore {
     await this.redis.del(cancelKey(jobId));
   }
 
+  async clearAsset(assetId: string): Promise<void> {
+    await this.redis.del(assetCancelKey(assetId));
+  }
+
   async throwIf(jobId: string, assetId?: string): Promise<void> {
     if (await this.isCanceled(jobId, assetId)) {
       throw new JobCanceledError();

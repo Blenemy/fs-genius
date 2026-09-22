@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Ban, ImageOff, Loader2, Play, RefreshCw, Trash2 } from "lucide-react";
+import { Ban, ImageOff, Loader2, Play, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLibraryStore } from "./store";
@@ -12,10 +12,12 @@ export function LibraryCard() {
     loading,
     deletingId,
     cancelingId,
+    restartingId,
     error,
     fetchAssets,
     deleteAsset,
     cancelAsset,
+    restartAsset,
   } = useLibraryStore();
   const [playerId, setPlayerId] = useState<string | null>(null);
 
@@ -127,6 +129,23 @@ export function LibraryCard() {
                       <Loader2 className="animate-spin" />
                     ) : (
                       <Ban />
+                    )}
+                  </Button>
+                )}
+
+                {(asset.status === "CANCELED" || asset.status === "FAILED") && (
+                  <Button
+                    variant="secondary"
+                    size="icon-sm"
+                    className="absolute top-2 right-11 bg-black/55 text-white backdrop-blur-sm"
+                    disabled={restartingId === asset.id}
+                    aria-label={`Обработать снова ${asset.originalName}`}
+                    onClick={() => void restartAsset(asset.id)}
+                  >
+                    {restartingId === asset.id ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <RotateCcw />
                     )}
                   </Button>
                 )}

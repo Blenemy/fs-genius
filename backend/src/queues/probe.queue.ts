@@ -39,4 +39,13 @@ export class ProbeQueue {
   async remove(jobId: string): Promise<number> {
     return this.queue.remove(jobId);
   }
+
+  async discard(jobId: string): Promise<void> {
+    const job = await this.queue.getJob(jobId);
+    if (job) {
+      await job.remove();
+      return;
+    }
+    await this.queue.remove(jobId);
+  }
 }

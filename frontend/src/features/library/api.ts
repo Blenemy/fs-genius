@@ -11,6 +11,13 @@ export function cancelAssetRequest(assetId: string) {
   });
 }
 
+export function restartAssetRequest(assetId: string) {
+  return apiJson<{ ok: true; status: 'PROCESSING' }>(
+    `/api/assets/${assetId}/jobs`,
+    { method: 'POST' },
+  );
+}
+
 export function deleteAssetRequest(assetId: string) {
   return apiJson<{ ok: true }>(`/api/assets/${assetId}`, {
     method: 'DELETE',

@@ -1,7 +1,12 @@
-import type { AssetKind, AssetStatus, DerivKind } from "../../generated/prisma/client.js";
+import type {
+  AssetKind,
+  AssetStatus,
+  DerivKind,
+  JobType,
+} from "../../generated/prisma/client.js";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../middleware/error.js";
-import { deleteObject, presignGet } from "../../lib/s3.js";
+import { deleteObject, headObject, presignGet } from "../../lib/s3.js";
 import type { ProbeQueue } from "../../queues/probe.queue.js";
 import type { ImageQueue } from "../../queues/image.queue.js";
 import type { VideoQueue } from "../../queues/video.queue.js";
@@ -162,6 +167,128 @@ export class AssetService {
     });
 
     return { ok: true as const, pending: false };
+  }
+
+  async restartAsset(assetId: string, userId: string) {
+    const asset = await this.prisma.asset.findUnique({
+      where: { id: assetId },
+      include: { jobs: true },
+    });
+
+    if (!asset || asset.userId !== userId) {
+      throw new AppError(404, "NOT_FOUND", "Файл не найден");
+    }
+
+    if (asset.status !== "CANCELED" && asset.status !== "FAILED") {
+      throw new AppError(
+        409,
+        "NOT_RESTARTABLE",
+        "Повторить можно только отменённый или упавший файл",
+      );
+    }
+
+    let original;
+    try {
+      original = await headObject(asset.storageKey);
+    } catch {
+      throw new AppError(
+        503,
+        "STORAGE_UNAVAILABLE",
+        "Не удалось проверить файл в хранилище",
+      );
+    }
+
+    if (!original) {
+      throw new AppError(
+        409,
+        "ORIGINAL_GONE",
+        "Исходный файл уже удалён, загрузи заново",
+      );
+    }
+
+    await this.cancelStore.clearAsset(assetId);
+    await Promise.all(asset.jobs.map((job) => this.cancelStore.clear(job.id)));
+
+    const jobType = this.restartJobType(asset.kind, asset.durationMs);
+    const mediaJob = await this.prisma.job.create({
+      data: {
+        assetId: asset.id,
+        type: jobType,
+        status: "QUEUED",
+      },
+    });
+
+    await this.prisma.asset.update({
+      where: { id: asset.id },
+      data: { status: "PROCESSING" },
+    });
+
+    const queued = await this.enqueueRestart(jobType, {
+      assetId: asset.id,
+      userId: asset.userId,
+      jobId: mediaJob.id,
+    }).catch(async (err: unknown) => {
+      await this.prisma.asset.update({
+        where: { id: asset.id },
+        data: { status: "CANCELED" },
+      });
+      throw err instanceof AppError
+        ? err
+        : new AppError(503, "QUEUE_UNAVAILABLE", "Не удалось поставить задачу");
+    });
+
+    await this.prisma.job.update({
+      where: { id: mediaJob.id },
+      data: { queueJobId: String(queued.id) },
+    });
+
+    await this.mediaEvents.publish({
+      userId: asset.userId,
+      assetId: asset.id,
+      status: "PROCESSING",
+    });
+
+    return { ok: true as const, status: "PROCESSING" as const };
+  }
+
+  private restartJobType(
+    kind: AssetKind | null,
+    durationMs: number | null,
+  ): JobType {
+    if (kind === "VIDEO" && durationMs && durationMs > 0) {
+      return "VIDEO_TRANSCODE";
+    }
+    if (kind === "IMAGE") return "IMAGE_VARIANTS";
+    return "PROBE";
+  }
+
+  private enqueueRestart(
+    type: JobType,
+    data: { assetId: string; userId: string; jobId: string },
+  ) {
+    if (type === "VIDEO_TRANSCODE") {
+      return this.addFresh(this.videoQueue, data);
+    }
+    if (type === "IMAGE_VARIANTS") {
+      return this.addFresh(this.imageQueue, data);
+    }
+    return this.addFresh(this.probeQueue, data);
+  }
+
+  private async addFresh(
+    queue: ProbeQueue | ImageQueue | VideoQueue,
+    data: { assetId: string; userId: string; jobId: string },
+  ) {
+    await queue.discard(data.assetId).catch(() => undefined);
+    try {
+      return await queue.add(data);
+    } catch (err) {
+      if (!(err instanceof Error) || !/already exists/i.test(err.message)) {
+        throw err;
+      }
+      await queue.discard(data.assetId).catch(() => undefined);
+      return queue.add(data);
+    }
   }
 
   private async toClient(asset: AssetRow): Promise<AssetClient> {
