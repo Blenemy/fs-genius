@@ -136,13 +136,22 @@ export async function presignPut(
 export async function presignGet(
   key: string,
   expiresIn = 3600,
+  downloadName?: string,
 ): Promise<string> {
   const config = assertS3Configured();
   const command = new GetObjectCommand({
     Bucket: config.bucket,
     Key: key,
+    ...(downloadName
+      ? { ResponseContentDisposition: attachmentDisposition(downloadName) }
+      : {}),
   });
   return getSignedUrl(getS3(), command, { expiresIn });
+}
+
+function attachmentDisposition(name: string): string {
+  const fallback = name.replace(/[^\w.\-]+/g, "_") || "file";
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 export async function deleteObject(key: string): Promise<void> {

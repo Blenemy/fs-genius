@@ -3,8 +3,13 @@ import { Ban, ImageOff, Loader2, Play, RefreshCw, RotateCcw, Trash2 } from "luci
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLibraryStore } from "./store";
-import { isVideoAsset, playbackSrc, posterSrc, type Asset } from "./types";
-import { VideoDialog } from "./VideoDialog";
+import {
+  formatDuration,
+  isVideoAsset,
+  posterSrc,
+  type Asset,
+} from "./types";
+import { AssetDialog } from "./AssetDialog";
 
 export function LibraryCard() {
   const {
@@ -19,19 +24,19 @@ export function LibraryCard() {
     cancelAsset,
     restartAsset,
   } = useLibraryStore();
-  const [playerId, setPlayerId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
     void fetchAssets();
   }, [fetchAssets]);
 
-  const playing = playerId
-    ? (assets.find((asset) => asset.id === playerId) ?? null)
+  const opened = openId
+    ? (assets.find((asset) => asset.id === openId) ?? null)
     : null;
 
   useEffect(() => {
-    if (playerId && !playing) setPlayerId(null);
-  }, [playerId, playing]);
+    if (openId && !opened) setOpenId(null);
+  }, [openId, opened]);
 
   return (
     <Card className="[--card-spacing:--spacing(5)]">
@@ -91,7 +96,7 @@ export function LibraryCard() {
                 <AssetFrame
                   asset={asset}
                   canceling={cancelingId === asset.id}
-                  onPlay={() => setPlayerId(asset.id)}
+                  onOpen={() => setOpenId(asset.id)}
                 />
 
                 {/* Подпись поверх картинки: имя и дата не отнимают высоту у сетки. */}
@@ -169,8 +174,17 @@ export function LibraryCard() {
           </ul>
         )}
       </CardContent>
-      {playing && (
-        <VideoDialog asset={playing} onClose={() => setPlayerId(null)} />
+      {opened && (
+        <AssetDialog
+          asset={opened}
+          canceling={cancelingId === opened.id}
+          restarting={restartingId === opened.id}
+          deleting={deletingId === opened.id}
+          onClose={() => setOpenId(null)}
+          onCancel={() => void cancelAsset(opened.id)}
+          onRestart={() => void restartAsset(opened.id)}
+          onDelete={() => void deleteAsset(opened.id)}
+        />
       )}
     </Card>
   );
@@ -179,19 +193,19 @@ export function LibraryCard() {
 function AssetFrame({
   asset,
   canceling,
-  onPlay,
+  onOpen,
 }: {
   asset: Asset;
   canceling: boolean;
-  onPlay: () => void;
+  onOpen: () => void;
 }) {
   const video = isVideoAsset(asset);
   const poster = posterSrc(asset);
-  const canPlay = asset.status === "READY" && Boolean(playbackSrc(asset));
   const progress =
     asset.status === "PROCESSING" && typeof asset.progress === "number"
       ? Math.min(100, Math.max(0, asset.progress))
       : null;
+  const duration = video ? formatDuration(asset.durationMs) : null;
 
   const frameClass =
     "bg-muted ring-foreground/10 relative block aspect-square w-full overflow-hidden rounded-xl ring-1";
@@ -229,6 +243,11 @@ function AssetFrame({
           <Play className="size-3.5 fill-white" />
         </span>
       )}
+      {duration && duration !== "—" && (
+        <span className="pointer-events-none absolute top-2.5 left-11 rounded-md bg-black/55 px-1.5 py-0.5 font-mono text-[0.65rem] text-white backdrop-blur-sm">
+          {duration}
+        </span>
+      )}
       {asset.status === "PROCESSING" && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/45">
           <div className="flex flex-col items-center gap-2">
@@ -264,39 +283,16 @@ function AssetFrame({
     </>
   );
 
-  if (canPlay) {
-    return (
-      <button
-        type="button"
-        className={`${frameClass} ${interactiveClass}`}
-        aria-label={`Смотреть ${asset.originalName}`}
-        onClick={onPlay}
-      >
-        {media}
-        {overlays}
-      </button>
-    );
-  }
-
-  if (video) {
-    return (
-      <div className={frameClass}>
-        {media}
-        {overlays}
-      </div>
-    );
-  }
-
   return (
-    <a
-      href={asset.url}
-      target="_blank"
-      rel="noreferrer"
+    <button
+      type="button"
       className={`${frameClass} ${interactiveClass}`}
+      aria-label={`Открыть ${asset.originalName}`}
+      onClick={onOpen}
     >
       {media}
       {overlays}
-    </a>
+    </button>
   );
 }
 

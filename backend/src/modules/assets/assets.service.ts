@@ -17,12 +17,49 @@ export type AssetClient = {
   id: string;
   originalName: string;
   contentType: string;
+  sourceType: string;
   status: AssetStatus;
   kind: AssetKind | null;
   url: string;
   playbackUrl: string | null;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  codec: string | null;
+  bitrate: number | null;
+  sizeBytes: number;
   progress?: number;
   createdAt: Date;
+};
+
+export type AssetFileLink = {
+  url: string;
+  downloadUrl: string;
+  sizeBytes: number;
+};
+
+export type AssetDerivativeClient = AssetFileLink & {
+  kind: DerivKind;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+};
+
+export type AssetJobClient = {
+  id: string;
+  type: JobType;
+  status: string;
+  error: string | null;
+  attempts: number;
+  createdAt: Date;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+};
+
+export type AssetDetailClient = AssetClient & {
+  original: AssetFileLink | null;
+  derivatives: AssetDerivativeClient[];
+  jobs: AssetJobClient[];
 };
 
 type AssetRow = {
@@ -33,11 +70,20 @@ type AssetRow = {
   status: AssetStatus;
   kind: AssetKind | null;
   storageKey: string;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  codec: string | null;
+  bitrate: number | null;
+  sizeBytes: bigint;
   createdAt: Date;
   derivatives: {
     kind: DerivKind;
     storageKey: string;
     mimeType: string;
+    sizeBytes: bigint;
+    width: number | null;
+    height: number | null;
   }[];
 };
 
@@ -79,6 +125,72 @@ export class AssetService {
 
     if (!row || row.userId !== userId) return null;
     return this.toClient(row);
+  }
+
+  async getAssetDetail(assetId: string, userId: string): Promise<AssetDetailClient> {
+    const row = await this.prisma.asset.findUnique({
+      where: { id: assetId },
+      include: {
+        derivatives: true,
+        jobs: { orderBy: { createdAt: "asc" } },
+      },
+    });
+
+    if (!row || row.userId !== userId) {
+      throw new AppError(404, "NOT_FOUND", "Файл не найден");
+    }
+
+    const base = await this.toClient(row);
+    const derivatives = await Promise.all(
+      [...row.derivatives]
+        .sort((a, b) => derivOrder(a.kind) - derivOrder(b.kind))
+        .map(async (item) => {
+          const name = downloadName(row.originalName, item.kind);
+          return {
+            kind: item.kind,
+            mimeType: item.mimeType,
+            width: item.width,
+            height: item.height,
+            sizeBytes: toCount(item.sizeBytes),
+            url: await presignGet(item.storageKey),
+            downloadUrl: await presignGet(item.storageKey, 3600, name),
+          };
+        }),
+    );
+
+    let original: AssetFileLink | null = null;
+    try {
+      const head = await headObject(row.storageKey);
+      if (head) {
+        original = {
+          sizeBytes: toCount(row.sizeBytes),
+          url: await presignGet(row.storageKey),
+          downloadUrl: await presignGet(
+            row.storageKey,
+            3600,
+            row.originalName,
+          ),
+        };
+      }
+    } catch {
+      original = null;
+    }
+
+    return {
+      ...base,
+      original,
+      derivatives,
+      jobs: row.jobs.map((job) => ({
+        id: job.id,
+        type: job.type,
+        status: job.status,
+        error: job.error,
+        attempts: job.attempts,
+        createdAt: job.createdAt,
+        startedAt: job.startedAt,
+        finishedAt: job.finishedAt,
+      })),
+    };
   }
 
   async deleteAsset(assetId: string, userId: string) {
@@ -303,11 +415,53 @@ export class AssetService {
       id: asset.id,
       originalName: asset.originalName,
       contentType: still?.mimeType ?? asset.contentType,
+      sourceType: asset.contentType,
       status: asset.status,
       kind: asset.kind,
       url,
       playbackUrl,
+      width: asset.width,
+      height: asset.height,
+      durationMs: asset.durationMs,
+      codec: asset.codec,
+      bitrate: asset.bitrate,
+      sizeBytes: toCount(asset.sizeBytes),
       createdAt: asset.createdAt,
     };
+  }
+}
+
+function toCount(value: bigint): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function derivOrder(kind: DerivKind): number {
+  const order: DerivKind[] = [
+    "POSTER",
+    "THUMBNAIL",
+    "PREVIEW",
+    "VIDEO_720P",
+    "AUDIO_MP3",
+  ];
+  const index = order.indexOf(kind);
+  return index === -1 ? order.length : index;
+}
+
+function downloadName(originalName: string, kind: DerivKind): string {
+  const stem = originalName.replace(/\.[^.]+$/, "") || "file";
+  switch (kind) {
+    case "POSTER":
+      return `${stem}_poster.jpg`;
+    case "THUMBNAIL":
+      return `${stem}_thumb.webp`;
+    case "PREVIEW":
+      return `${stem}_preview.webp`;
+    case "VIDEO_720P":
+      return `${stem}_720p.mp4`;
+    case "AUDIO_MP3":
+      return `${stem}_audio.mp3`;
+    default:
+      return originalName;
   }
 }

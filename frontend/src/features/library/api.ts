@@ -1,8 +1,12 @@
 import { apiJson } from '@/lib/api';
-import type { Asset } from './types';
+import type { Asset, AssetDetail } from './types';
 
 export function fetchAssetList() {
   return apiJson<{ assets: Asset[] }>('/api/assets');
+}
+
+export function fetchAssetDetail(assetId: string) {
+  return apiJson<{ asset: AssetDetail }>(`/api/assets/${assetId}`);
 }
 
 export function cancelAssetRequest(assetId: string) {
