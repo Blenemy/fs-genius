@@ -7,6 +7,7 @@ import { LibraryCard } from "@/features/library/LibraryCard";
 import { useAuthStore } from "@/stores/auth";
 import { useLibraryStore } from "@/features/library/store";
 import { useEventsStore } from "@/stores/events";
+import { TelegramConnect } from "@/features/settings/TelegramConnect";
 
 export function App() {
   const connect = useEventsStore((s) => s.connect);
@@ -36,6 +37,7 @@ export function App() {
           <Wordmark />
 
           <div className="flex items-center gap-2">
+            <TelegramConnect />
             <div className="bg-card/60 hidden items-center gap-2.5 rounded-full py-1 pr-3 pl-1 ring-1 ring-foreground/10 sm:flex">
               <span className="bg-muted text-foreground grid size-7 place-items-center rounded-full text-xs font-semibold">
                 {initials}

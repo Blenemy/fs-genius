@@ -15,6 +15,7 @@ import { MediaEventsPublisher } from "./media-events-publisher.js";
 import { JobCancelStore } from "./job-cancel.js";
 import { MediaEventsHub } from "../modules/events/events.hub.js";
 import { logger } from "./logger.js";
+import { TelegramService } from "../modules/telegram/telegram.service.js";
 
 /** API process only. The worker process must not import this module. */
 const probeProducerRedis = createRedis("probe-producer", "queue");
@@ -51,6 +52,7 @@ export const uploadsService = new UploadsService(
   mediaEventsPublisher,
 );
 export const authService = new AuthService(prisma, tokenHelper);
+export const telegramService = new TelegramService(prisma, getRedis());
 
 /**
  * Только очередные соединения. Общий кеш-клиент гасит disconnectRedis():

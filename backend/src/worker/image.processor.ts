@@ -25,6 +25,7 @@ import {
   startJobAbort,
   WorkerShutdownError,
 } from "./job-abort.js";
+import { notifyImageProcessed } from "../modules/telegram/notify.js";
 
 export class ImageProcessor {
   private readonly log = childLogger({ processor: "image" });
@@ -40,6 +41,7 @@ export class ImageProcessor {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `img-${job.id}-`));
     let jobId = job.data.jobId;
     let stopAbort: (() => void) | undefined;
+    let originalName = job.data.assetId;
 
     try {
       const asset = await prisma.asset.findUnique({
@@ -49,6 +51,7 @@ export class ImageProcessor {
       if (!asset) {
         throw new UnrecoverableError("Asset not found");
       }
+      originalName = asset.originalName;
 
       jobId = await this.resolveJobId(job.data);
       const abort = startJobAbort(
@@ -104,6 +107,11 @@ export class ImageProcessor {
         assetId: asset.id,
         status: "READY",
       });
+      await notifyImageProcessed({
+        userId: asset.userId,
+        originalName: asset.originalName,
+        status: "READY",
+      });
 
       this.log.info({ thumbKey, previewKey }, "derivatives stored");
     } catch (err) {
@@ -129,7 +137,13 @@ export class ImageProcessor {
         err instanceof UnrecoverableError ||
         isFatalJobError(err, job.attemptsMade, job.opts.attempts);
       if (fatal) {
-        await this.persistFailure(jobId, job.data.assetId, job.data.userId, err);
+        await this.persistFailure(
+          jobId,
+          job.data.assetId,
+          job.data.userId,
+          err,
+          originalName,
+        );
       }
       if (err instanceof UnrecoverableError) throw err;
       if (isUnreadableMedia(err)) {
@@ -162,6 +176,7 @@ export class ImageProcessor {
     assetId: string,
     userId: string,
     err: unknown,
+    originalName: string,
   ): Promise<void> {
     if (jobId) {
       try {
@@ -179,6 +194,12 @@ export class ImageProcessor {
       userId,
       assetId,
       status: "FAILED",
+    });
+    await notifyImageProcessed({
+      userId,
+      originalName,
+      status: "FAILED",
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 

@@ -12,7 +12,6 @@ import { VideoQueue } from "./queues/video.queue.js";
 import { MediaEventsPublisher } from "./lib/media-events-publisher.js";
 import { mediaBin } from "./lib/media-bin.js";
 import { JobCancelStore } from "./lib/job-cancel.js";
-
 const log = childLogger({ service: "worker" });
 
 const probeRedis = createRedis("worker-probe", "queue");

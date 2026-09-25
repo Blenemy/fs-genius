@@ -9,51 +9,59 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
-  // Список источников через запятую — фронт в разработке и домен в проде.
   CORS_ORIGIN: z.string().default("http://localhost:5173"),
 
   DATABASE_URL: z.string().min(1, "нужна строка подключения к MySQL"),
 
   REDIS_URL: z.string().min(1, "нужна строка подключения к Redis"),
 
-  // Формально необязательные, потому что в разработке приложение должно
-  // подниматься и без MinIO. В production их отсутствие — ошибка старта,
-  // см. requireStorageInProduction ниже.
   S3_ENDPOINT: z.url().optional(),
   S3_REGION: z.string().default("us-east-1"),
   S3_BUCKET: z.string().min(1).optional(),
   S3_ACCESS_KEY: z.string().min(1).optional(),
   S3_SECRET_KEY: z.string().min(1).optional(),
-  // MinIO работает по path-style, реальный S3 — по virtual-hosted.
   S3_FORCE_PATH_STYLE: z.stringbool().default(true),
 
-  // Секреты обязательные и разные: одним ключом на оба типа токена access
-  // становится валидным refresh-ом. Дефолта здесь быть не должно — молча
-  // подписывать общеизвестным ключом хуже, чем не подняться.
-  JWT_ACCESS_SECRET: z.string().min(32, 'нужен секрет не короче 32 символов'),
-  JWT_REFRESH_SECRET: z.string().min(32, 'нужен секрет не короче 32 символов'),
-  // В секундах, а не строкой «15m»: это же число уходит в maxAge куки,
-  // а типы jsonwebtoken принимают строку только из своего формата ms.
+  JWT_ACCESS_SECRET: z.string().min(32, "нужен секрет не короче 32 символов"),
+  JWT_REFRESH_SECRET: z.string().min(32, "нужен секрет не короче 32 символов"),
+
   JWT_ACCESS_TTL: z.coerce.number().int().positive().default(900),
   JWT_REFRESH_TTL: z.coerce.number().int().positive().default(2_592_000),
 
-  // Флаг Secure у кук. Отдельной переменной, а не через NODE_ENV: профиль app
-  // в docker поднимается с NODE_ENV=production, но отдаётся по http на
-  // 127.0.0.1:8080 — там Secure надо выключить, иначе браузер молча выбросит
-  // Set-Cookie и вход будет «успешным», но нерабочим.
   COOKIE_SECURE: z.stringbool().default(false),
 
-  // Сколько прокси-хопов перед приложением. Влияет на req.ip: он пишется в
-  // строку RefreshToken и будет ключом для rate-limit. Значение больше
-  // реального числа хопов = клиент может подделать свой адрес через
-  // X-Forwarded-For, меньше = все клиенты выглядят одним адресом.
-  // На проде перед api два nginx: хостовый и тот, что в образе web.
   TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(1),
 
-  /** Absolute path when PATH is Git Bash-style and spawn() cannot see the exe. */
   FFMPEG_PATH: z.string().min(1).optional(),
   FFPROBE_PATH: z.string().min(1).optional(),
+
+  TELEGRAM_BOT_TOKEN: optionalEnv(z.string().min(1)),
+  TELEGRAM_CHAT_ID: optionalEnv(z.string().regex(/^-?\d+$/)),
+  /** Public HTTPS URL Telegram will POST updates to. */
+  TELEGRAM_WEBHOOK_URL: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : undefined;
+    })
+    .pipe(z.url().optional()),
+  /** Sent back in X-Telegram-Bot-Api-Secret-Token. A-Z, a-z, 0-9, _, -. */
+  TELEGRAM_WEBHOOK_SECRET: optionalEnv(
+    z.string().regex(/^[A-Za-z0-9_-]{1,256}$/),
+  ),
 });
+
+function optionalEnv(schema: z.ZodString) {
+  return z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : undefined;
+    })
+    .pipe(schema.optional());
+}
 
 export type Env = z.infer<typeof envSchema>;
 
@@ -78,11 +86,6 @@ function loadEnv(): Env {
   return parsed.data;
 }
 
-/**
- * Без S3 приложение поднимется и будет выглядеть здоровым: /health отдаёт
- * storage.skipped, а загрузка отвечает 503 STORAGE_UNAVAILABLE. На проде это
- * худший вид поломки — тихий. Поэтому там отсутствие настроек валит старт.
- */
 function requireStorageInProduction(env: Env): void {
   if (env.NODE_ENV !== "production") return;
 

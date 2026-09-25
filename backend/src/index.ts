@@ -1,11 +1,14 @@
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
-import { disconnectApi } from './lib/container.js';
+import { disconnectApi, telegramService } from './lib/container.js';
 
 const app = createApp();
 const server = app.listen(env.PORT, () => {
   logger.info(`api listening on http://localhost:${env.PORT}`);
+  void telegramService.registerWebhook().catch((err: unknown) => {
+    logger.error({ err }, 'failed to register telegram webhook');
+  });
 });
 
 async function shutdown(signal: string): Promise<void> {

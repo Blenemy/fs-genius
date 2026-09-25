@@ -14,6 +14,7 @@ import { assetsRouter } from "./modules/assets/assets.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { docsRouter } from "./modules/docs/docs.routes.js";
 import { eventsRouter } from "./modules/events/events.routes.js";
+import { telegramRouter } from "./modules/telegram/telegram.routes.js";
 
 export function createApp(): Express {
   const app = express();
@@ -38,6 +39,7 @@ export function createApp(): Express {
   app.use("/api", authRouter);
   app.use("/api", docsRouter);
   app.use("/api", eventsRouter);
+  app.use("/api", telegramRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
