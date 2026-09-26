@@ -16,6 +16,7 @@ import { JobCancelStore } from "./job-cancel.js";
 import { MediaEventsHub } from "../modules/events/events.hub.js";
 import { logger } from "./logger.js";
 import { TelegramService } from "../modules/telegram/telegram.service.js";
+import { BillingService } from "../modules/billing/billing.service.js";
 
 /** API process only. The worker process must not import this module. */
 const probeProducerRedis = createRedis("probe-producer", "queue");
@@ -53,6 +54,7 @@ export const uploadsService = new UploadsService(
 );
 export const authService = new AuthService(prisma, tokenHelper);
 export const telegramService = new TelegramService(prisma, getRedis());
+export const billingService = new BillingService(prisma);
 
 /**
  * Только очередные соединения. Общий кеш-клиент гасит disconnectRedis():

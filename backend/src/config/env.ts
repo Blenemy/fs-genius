@@ -37,7 +37,6 @@ const envSchema = z.object({
 
   TELEGRAM_BOT_TOKEN: optionalEnv(z.string().min(1)),
   TELEGRAM_CHAT_ID: optionalEnv(z.string().regex(/^-?\d+$/)),
-  /** Public HTTPS URL Telegram will POST updates to. */
   TELEGRAM_WEBHOOK_URL: z
     .string()
     .optional()
@@ -46,10 +45,13 @@ const envSchema = z.object({
       return trimmed ? trimmed : undefined;
     })
     .pipe(z.url().optional()),
-  /** Sent back in X-Telegram-Bot-Api-Secret-Token. A-Z, a-z, 0-9, _, -. */
   TELEGRAM_WEBHOOK_SECRET: optionalEnv(
     z.string().regex(/^[A-Za-z0-9_-]{1,256}$/),
   ),
+
+  STRIPE_SECRET_KEY: optionalEnv(z.string().min(1)),
+  STRIPE_CHECKOUT_SUCCESS_URL: optionalUrl(),
+  STRIPE_CHECKOUT_CANCEL_URL: optionalUrl(),
 });
 
 function optionalEnv(schema: z.ZodString) {
@@ -61,6 +63,17 @@ function optionalEnv(schema: z.ZodString) {
       return trimmed ? trimmed : undefined;
     })
     .pipe(schema.optional());
+}
+
+function optionalUrl() {
+  return z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : undefined;
+    })
+    .pipe(z.url().optional());
 }
 
 export type Env = z.infer<typeof envSchema>;
