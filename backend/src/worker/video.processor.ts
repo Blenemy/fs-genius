@@ -8,11 +8,12 @@ import fs from "node:fs/promises";
 import sharp from "sharp";
 import { prisma } from "../lib/prisma.js";
 import { getObjectToFile, putObjectToS3, deleteObject } from "../lib/s3.js";
-import { fileHasAudio } from "../lib/ffprobe.js";
+import { canRemuxTo720p, fileHasAudio } from "../lib/ffprobe.js";
 import {
   createFfmpegTimeParser,
   extractFrameArgs,
   extractMp3Args,
+  remux720pArgs,
   runFfmpeg,
   transcode720pArgs,
 } from "../lib/ffmpeg.js";
@@ -132,7 +133,14 @@ export class VideoProcessor {
       await this.cancel.throwIf(jobId, job.data.assetId);
 
       const videoPath = path.join(tmpDir, "video_720p.mp4");
-      await runFfmpeg(transcode720pArgs(originalPath, videoPath, hasAudio), {
+      // Уже H.264 720p с нормальным битрейтом — перекодирование заняло бы
+      // минуты CPU ради того же качества. Копируем потоки как есть.
+      const remux = await canRemuxTo720p(originalPath, signal);
+      this.log.info({ assetId: asset.id, remux }, "720p mode");
+      const videoArgs = remux
+        ? remux720pArgs(originalPath, videoPath, hasAudio)
+        : transcode720pArgs(originalPath, videoPath, hasAudio);
+      await runFfmpeg(videoArgs, {
         signal,
         onStdout: createFfmpegTimeParser((ms) => {
           if (durationMs <= 0) return;

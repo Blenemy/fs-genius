@@ -17,6 +17,8 @@ export type VideoProbeMeta = {
 type FfprobeStream = {
   codec_type?: string;
   codec_name?: string;
+  pix_fmt?: string;
+  channels?: number;
   width?: number;
   height?: number;
   duration?: string;
@@ -128,6 +130,60 @@ export async function fileHasAudio(
     if (err instanceof JobCanceledError) throw err;
     return false;
   }
+}
+
+/**
+ * Выше этого битрейта исходник перекодируем, даже если он уже 720p:
+ * запись экрана или камера на 30+ Мбит/с — слишком тяжёлый файл для просмотра.
+ * crf 23 veryfast даёт на 720p обычно 2–4 Мбит/с.
+ */
+const REMUX_MAX_BITRATE = 5_000_000;
+
+/**
+ * Можно ли собрать video_720p без перекодирования (-c copy).
+ * Условия те же, что гарантирует transcode720pArgs: H.264 yuv420p не выше 720
+ * по кодированной высоте (scale смотрит на ih), звук AAC не больше двух каналов.
+ * Любая ошибка — false: пусть лучше перекодирует, чем отдаст неиграющий файл.
+ */
+export async function canRemuxTo720p(
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  let parsed: FfprobeJson;
+  try {
+    const { stdout } = await runProcess(
+      mediaBin("ffprobe"),
+      [
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+        filePath,
+      ],
+      { signal },
+    );
+    parsed = JSON.parse(stdout) as FfprobeJson;
+  } catch (err) {
+    if (err instanceof JobCanceledError) throw err;
+    return false;
+  }
+
+  const video = parsed.streams?.find((stream) => stream.codec_type === "video");
+  const audio = parsed.streams?.find((stream) => stream.codec_type === "audio");
+  const bitrate = Number.parseInt(parsed.format?.bit_rate ?? "", 10);
+
+  const videoOk =
+    video?.codec_name === "h264" &&
+    video.pix_fmt === "yuv420p" &&
+    !!video.height &&
+    video.height <= 720;
+  const audioOk =
+    !audio || (audio.codec_name === "aac" && (audio.channels ?? 0) <= 2);
+  const bitrateOk = Number.isFinite(bitrate) && bitrate <= REMUX_MAX_BITRATE;
+
+  return videoOk && audioOk && bitrateOk;
 }
 
 function readRotation(stream: FfprobeStream): number {

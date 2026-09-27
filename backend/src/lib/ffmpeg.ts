@@ -58,6 +58,33 @@ export function transcode720pArgs(
   ];
 }
 
+/** Исходник уже годится как 720p (см. canRemuxTo720p): только перекладываем в mp4 с faststart. */
+export function remux720pArgs(
+  input: string,
+  output: string,
+  hasAudio: boolean,
+): string[] {
+  const audio = hasAudio ? ["-map", "0:a:0"] : ["-an"];
+
+  return [
+    "-hide_banner",
+    "-y",
+    "-i",
+    input,
+    "-map",
+    "0:v:0",
+    ...audio,
+    "-c",
+    "copy",
+    "-movflags",
+    "+faststart",
+    "-progress",
+    "pipe:1",
+    "-nostats",
+    output,
+  ];
+}
+
 export function extractMp3Args(input: string, output: string): string[] {
   return [
     "-hide_banner",
