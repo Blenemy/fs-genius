@@ -15,7 +15,10 @@ import { authRouter } from "./modules/auth/auth.routes.js";
 import { docsRouter } from "./modules/docs/docs.routes.js";
 import { eventsRouter } from "./modules/events/events.routes.js";
 import { telegramRouter } from "./modules/telegram/telegram.routes.js";
-import { billingRouter } from "./modules/billing/billing.routes.js";
+import {
+  billingRouter,
+  billingWebhookRouter,
+} from "./modules/billing/billing.routes.js";
 
 export function createApp(): Express {
   const app = express();
@@ -28,9 +31,16 @@ export function createApp(): Express {
 
   app.use(helmet());
   app.use(cors({ origin: corsOrigins, credentials: true }));
-  app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
   app.use(checkOrigin);
+  // Подпись Stripe считается по сырым байтам. JSON-парсер ниже их уже не видит:
+  // body-parser пропускает запрос, у которого тело прочитано.
+  app.use(
+    "/api/billing/webhook",
+    express.raw({ type: "application/json" }),
+    billingWebhookRouter,
+  );
+  app.use(express.json({ limit: "1mb" }));
   // app.use(pinoHttp({ logger }));
 
   app.use("/api", healthRouter);

@@ -50,6 +50,8 @@ const envSchema = z.object({
   ),
 
   STRIPE_SECRET_KEY: optionalEnv(z.string().min(1)),
+  /** Секрет подписи вебхука (`whsec_…`). Пусто — webhook отвечает 503. */
+  STRIPE_WEBHOOK_SECRET: optionalEnv(z.string().min(1)),
   STRIPE_CHECKOUT_SUCCESS_URL: optionalUrl(),
   STRIPE_CHECKOUT_CANCEL_URL: optionalUrl(),
 });

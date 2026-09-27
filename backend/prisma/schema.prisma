@@ -9,8 +9,8 @@ datasource db {
   provider = "mysql"
 }
 
-/// Тариф пользователя. Пока ни на что не влияет — нужен как поле,
-/// по которому можно фильтровать тяжёлый отчёт.
+/// Тариф. Вебхук Stripe ставит PRO, пока подписка active или trialing,
+/// и возвращает FREE, когда оплата отваливается. На ручки это ещё не завязано.
 enum Plan {
   FREE
   PRO
@@ -71,10 +71,31 @@ model User {
   quotaBytes  BigInt    @default(1073741824)
   lastLoginAt DateTime?
 
-  uploads       Upload[]
-  refreshTokens RefreshToken[]
+  uploads              Upload[]
+  refreshTokens        RefreshToken[]
+  billingSubscription  BillingSubscription?
 
   @@index([createdAt])
+}
+
+/// Подписка Stripe одного пользователя. Доступ — status active или trialing.
+model BillingSubscription {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeCustomerId     String   @unique @db.VarChar(255)
+  stripeSubscriptionId String   @unique @db.VarChar(255)
+  status               String   @db.VarChar(32)
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+/// Событие Stripe, которое уже применили. Повтор с тем же id пропускается.
+model StripeEvent {
+  id        String   @id @db.VarChar(255)
+  type      String   @db.VarChar(64)
+  createdAt DateTime @default(now())
 }
 
 /// Выданный refresh-токен. В базе лежит sha256 от JWT, а не сам JWT:
