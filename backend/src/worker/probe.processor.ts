@@ -10,6 +10,7 @@ import { getObjectToFile } from "../lib/s3.js";
 import type { ProbeJobData } from "../shared/jobs.js";
 import type { ImageQueue } from "../queues/image.queue.js";
 import type { VideoQueue } from "../queues/video.queue.js";
+import type { NotifyQueue } from "../queues/notify.queue.js";
 import type { MediaEventsPublisher } from "../lib/media-events-publisher.js";
 import type { JobCancelStore } from "../lib/job-cancel.js";
 import {
@@ -56,6 +57,7 @@ export class ProbeProcessor {
     private readonly videoQueue: VideoQueue,
     private readonly mediaEvents: MediaEventsPublisher,
     private readonly cancel: JobCancelStore,
+    private readonly notifyQueue: NotifyQueue,
     private readonly shutdown?: AbortSignal,
   ) {}
 
@@ -288,6 +290,12 @@ export class ProbeProcessor {
       userId,
       assetId,
       status: "FAILED",
+    });
+    await this.notifyQueue.add({
+      userId,
+      assetId,
+      status: "FAILED",
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 

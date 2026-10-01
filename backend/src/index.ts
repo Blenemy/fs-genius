@@ -6,8 +6,8 @@ import { disconnectApi, telegramService } from './lib/container.js';
 const app = createApp();
 const server = app.listen(env.PORT, () => {
   logger.info(`api listening on http://localhost:${env.PORT}`);
-  void telegramService.registerWebhook().catch((err: unknown) => {
-    logger.error({ err }, 'failed to register telegram webhook');
+  void telegramService.startTransport().catch((err: unknown) => {
+    logger.error({ err }, 'failed to start telegram transport');
   });
 });
 

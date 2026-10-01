@@ -65,6 +65,8 @@ model User {
   avatarUrl String?  @db.VarChar(255)
   /// Личный чат с ботом. Пусто — пользователь не подключал Telegram.
   telegramChatId BigInt? @unique
+  /// /stop или 403: привязка жива, уведомления не шлём.
+  telegramMuted Boolean @default(false)
 
   /// Байты считаются агрегатом по загрузкам, но лежат и здесь —
   /// чтобы было с чем сравнить результат тяжёлого запроса.

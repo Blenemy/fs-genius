@@ -2,6 +2,7 @@ import { apiJson } from "@/lib/api";
 
 export interface TelegramStatus {
   linked: boolean;
+  muted: boolean;
 }
 
 export interface TelegramLink {

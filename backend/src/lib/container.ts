@@ -80,6 +80,7 @@ async function quitQueueConnections(): Promise<void> {
 }
 
 export async function disconnectApi(): Promise<void> {
+  await telegramService.stop();
   await mediaEventsHub.close();
   await probeQueue.close();
   await imageQueue.close();

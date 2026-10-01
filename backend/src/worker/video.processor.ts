@@ -28,6 +28,7 @@ import {
 } from "./media-status.js";
 import type { MediaEventsPublisher } from "../lib/media-events-publisher.js";
 import type { JobCancelStore } from "../lib/job-cancel.js";
+import type { NotifyQueue } from "../queues/notify.queue.js";
 import {
   persistCanceled,
   resolveAbort,
@@ -46,6 +47,7 @@ export class VideoProcessor {
   constructor(
     private readonly mediaEvents: MediaEventsPublisher,
     private readonly cancel: JobCancelStore,
+    private readonly notifyQueue: NotifyQueue,
     private readonly shutdown?: AbortSignal,
   ) {}
 
@@ -211,6 +213,11 @@ export class VideoProcessor {
         status: "READY",
         progress: 100,
       });
+      await this.notifyQueue.add({
+        userId: asset.userId,
+        assetId: asset.id,
+        status: "READY",
+      });
 
       this.log.info({ posterKey, thumbKey, videoKey }, "derivatives stored");
     } catch (err) {
@@ -315,6 +322,12 @@ export class VideoProcessor {
       userId,
       assetId,
       status: "FAILED",
+    });
+    await this.notifyQueue.add({
+      userId,
+      assetId,
+      status: "FAILED",
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 

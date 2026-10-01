@@ -16,6 +16,15 @@ export type VideoJobData = {
   jobId: string;
 };
 
+export type NotifyJobData = {
+  assetId: string;
+  userId: string;
+  status: "READY" | "FAILED";
+  error?: string;
+  photoSent?: boolean;
+  fileSent?: boolean;
+};
+
 export type JobCounts = {
   waiting: number;
   active: number;

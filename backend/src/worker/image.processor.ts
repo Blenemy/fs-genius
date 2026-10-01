@@ -25,7 +25,7 @@ import {
   startJobAbort,
   WorkerShutdownError,
 } from "./job-abort.js";
-import { notifyImageProcessed } from "../modules/telegram/notify.js";
+import type { NotifyQueue } from "../queues/notify.queue.js";
 
 export class ImageProcessor {
   private readonly log = childLogger({ processor: "image" });
@@ -33,6 +33,7 @@ export class ImageProcessor {
   constructor(
     private readonly mediaEvents: MediaEventsPublisher,
     private readonly cancel: JobCancelStore,
+    private readonly notifyQueue: NotifyQueue,
     private readonly shutdown?: AbortSignal,
   ) {}
 
@@ -41,7 +42,6 @@ export class ImageProcessor {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `img-${job.id}-`));
     let jobId = job.data.jobId;
     let stopAbort: (() => void) | undefined;
-    let originalName = job.data.assetId;
 
     try {
       const asset = await prisma.asset.findUnique({
@@ -51,7 +51,6 @@ export class ImageProcessor {
       if (!asset) {
         throw new UnrecoverableError("Asset not found");
       }
-      originalName = asset.originalName;
 
       jobId = await this.resolveJobId(job.data);
       const abort = startJobAbort(
@@ -107,9 +106,9 @@ export class ImageProcessor {
         assetId: asset.id,
         status: "READY",
       });
-      await notifyImageProcessed({
+      await this.notifyQueue.add({
         userId: asset.userId,
-        originalName: asset.originalName,
+        assetId: asset.id,
         status: "READY",
       });
 
@@ -142,7 +141,6 @@ export class ImageProcessor {
           job.data.assetId,
           job.data.userId,
           err,
-          originalName,
         );
       }
       if (err instanceof UnrecoverableError) throw err;
@@ -176,7 +174,6 @@ export class ImageProcessor {
     assetId: string,
     userId: string,
     err: unknown,
-    originalName: string,
   ): Promise<void> {
     if (jobId) {
       try {
@@ -195,9 +192,9 @@ export class ImageProcessor {
       assetId,
       status: "FAILED",
     });
-    await notifyImageProcessed({
+    await this.notifyQueue.add({
       userId,
-      originalName,
+      assetId,
       status: "FAILED",
       error: err instanceof Error ? err.message : String(err),
     });

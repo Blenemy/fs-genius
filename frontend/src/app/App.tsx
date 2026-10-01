@@ -8,7 +8,6 @@ import { useAuthStore } from "@/stores/auth";
 import { useLibraryStore } from "@/features/library/store";
 import { useEventsStore } from "@/stores/events";
 import { TelegramConnect } from "@/features/settings/TelegramConnect";
-import { CheckoutCard } from "@/features/billing/CheckoutCard";
 
 export function App() {
   const connect = useEventsStore((s) => s.connect);
@@ -74,7 +73,6 @@ export function App() {
         </div>
 
         <div className="flex flex-col gap-6">
-          <CheckoutCard />
           <UploadCard />
           <LibraryCard />
         </div>

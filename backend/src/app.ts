@@ -15,10 +15,11 @@ import { authRouter } from "./modules/auth/auth.routes.js";
 import { docsRouter } from "./modules/docs/docs.routes.js";
 import { eventsRouter } from "./modules/events/events.routes.js";
 import { telegramRouter } from "./modules/telegram/telegram.routes.js";
-import {
-  billingRouter,
-  billingWebhookRouter,
-} from "./modules/billing/billing.routes.js";
+// Stripe-песочница снята с продукта. Ручки в billing.routes.ts закомментированы.
+// import {
+//   billingRouter,
+//   billingWebhookRouter,
+// } from "./modules/billing/billing.routes.js";
 
 export function createApp(): Express {
   const app = express();
@@ -33,13 +34,12 @@ export function createApp(): Express {
   app.use(cors({ origin: corsOrigins, credentials: true }));
   app.use(cookieParser());
   app.use(checkOrigin);
-  // Подпись Stripe считается по сырым байтам. JSON-парсер ниже их уже не видит:
-  // body-parser пропускает запрос, у которого тело прочитано.
-  app.use(
-    "/api/billing/webhook",
-    express.raw({ type: "application/json" }),
-    billingWebhookRouter,
-  );
+  // Stripe webhook (сырое тело под подпись) выключен вместе с биллингом.
+  // app.use(
+  //   "/api/billing/webhook",
+  //   express.raw({ type: "application/json" }),
+  //   billingWebhookRouter,
+  // );
   app.use(express.json({ limit: "1mb" }));
   // app.use(pinoHttp({ logger }));
 
@@ -51,7 +51,7 @@ export function createApp(): Express {
   app.use("/api", docsRouter);
   app.use("/api", eventsRouter);
   app.use("/api", telegramRouter);
-  app.use("/api", billingRouter);
+  // app.use("/api", billingRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
