@@ -17,6 +17,7 @@ import { MediaEventsHub } from "../modules/events/events.hub.js";
 import { logger } from "./logger.js";
 import { TelegramService } from "../modules/telegram/telegram.service.js";
 import { BillingService } from "../modules/billing/billing.service.js";
+import { QuotaService } from "../modules/quota/quota.service.js";
 
 /** API process only. The worker process must not import this module. */
 const probeProducerRedis = createRedis("probe-producer", "queue");
@@ -38,6 +39,7 @@ export const usersService = new UsersService(
 );
 
 export const healthService = new HealthService(prisma, getRedis());
+export const quotaService = new QuotaService(prisma);
 export const assetService = new AssetService(
   prisma,
   probeQueue,
@@ -45,15 +47,21 @@ export const assetService = new AssetService(
   videoQueue,
   jobCancelStore,
   mediaEventsPublisher,
+  quotaService,
 );
 export const mediaEventsHub = new MediaEventsHub(eventsSubRedis, assetService);
 export const uploadsService = new UploadsService(
   prisma,
   probeQueue,
   mediaEventsPublisher,
+  quotaService,
 );
-export const authService = new AuthService(prisma, tokenHelper);
-export const telegramService = new TelegramService(prisma, getRedis());
+export const authService = new AuthService(prisma, tokenHelper, quotaService);
+export const telegramService = new TelegramService(
+  prisma,
+  getRedis(),
+  quotaService,
+);
 export const billingService = new BillingService(prisma);
 
 /**

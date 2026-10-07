@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { cancelAssetRequest, deleteAssetRequest, fetchAssetList, restartAssetRequest } from './api';
 import type { Asset } from './types';
+import { useAuthStore } from '@/stores/auth';
 
 interface LibraryState {
   assets: Asset[];
@@ -74,6 +75,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           ),
           cancelingId: null,
         });
+        void useAuthStore.getState().refreshUsage();
       }
     } catch (err) {
       set({
@@ -97,6 +99,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         ),
         restartingId: null,
       });
+      void useAuthStore.getState().refreshUsage();
     } catch (err) {
       set({
         restartingId: null,
@@ -114,6 +117,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         assets: get().assets.filter((asset) => asset.id !== assetId),
         deletingId: null,
       });
+      void useAuthStore.getState().refreshUsage();
     } catch (err) {
       set({
         deletingId: null,

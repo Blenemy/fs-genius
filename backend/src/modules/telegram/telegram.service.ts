@@ -20,6 +20,8 @@ import {
   pickTelegramImage,
 } from "./message.js";
 import { storageEndpointReachableFromTelegram } from "./storage-links.js";
+import type { QuotaService } from "../quota/quota.service.js";
+import { formatQuotaBytes } from "../quota/limits.js";
 
 const LINK_TTL_SEC = 15 * 60;
 const LINK_PREFIX = "telegram:link:";
@@ -50,6 +52,7 @@ export class TelegramService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly redis: Redis,
+    private readonly quota: QuotaService,
   ) {}
 
   async status(userId: string): Promise<{ linked: boolean; muted: boolean }> {
@@ -206,26 +209,30 @@ export class TelegramService {
     const user = await this.requireLinked(bot, chatId);
     if (!user) return;
 
-    const [running, queued] = await Promise.all([
+    const [running, queued, usage] = await Promise.all([
       this.prisma.job.count({
         where: { status: "RUNNING", asset: { userId: user.id } },
       }),
       this.prisma.job.count({
         where: { status: "QUEUED", asset: { userId: user.id } },
       }),
+      this.quota.snapshot(user.id),
     ]);
 
+    const lines = [
+      `Квота: ${formatQuotaBytes(usage.usedBytes)} из ${formatQuotaBytes(usage.quotaBytes)}`,
+      usage.videoBusy
+        ? "Видео: одно уже в работе"
+        : "Видео: слот свободен",
+    ];
+
     if (running === 0 && queued === 0) {
-      await this.reply(bot, chatId, "Сейчас ничего не обрабатывается.", user.id);
-      return;
+      lines.push("Сейчас ничего не обрабатывается.");
+    } else {
+      lines.push(`В работе: ${running}`, `В очереди: ${queued}`);
     }
 
-    await this.reply(
-      bot,
-      chatId,
-      `В работе: ${running}\nВ очереди: ${queued}`,
-      user.id,
-    );
+    await this.reply(bot, chatId, lines.join("\n"), user.id);
   }
 
   private async onLast(bot: Bot, chatId: number): Promise<void> {

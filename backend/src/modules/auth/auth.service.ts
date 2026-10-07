@@ -1,5 +1,6 @@
 import {
   publicUserSelect,
+  type AuthIdentity,
   type LoginInput,
   type PublicUser,
   type RegisterInput,
@@ -11,13 +12,14 @@ import { isUniqueViolation } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error.js";
 import { logger } from "../../lib/logger.js";
 import type { TokenHelper } from "../../lib/tokens.js";
+import type { QuotaService } from "../quota/quota.service.js";
 
 const DUMMY_HASH = await hash("нет-такого-пользователя");
 
 const REUSE_WINDOW_MS = 10_000;
 
 type IssuedSession = {
-  user: PublicUser;
+  user: AuthIdentity;
   accessToken: string;
   refreshToken: string;
 };
@@ -133,6 +135,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly tokens: TokenHelper,
+    private readonly quota: QuotaService,
   ) {}
 
   async login(input: LoginInput, meta: SessionMeta) {
@@ -180,7 +183,12 @@ export class AuthService {
       throw new AppError(401, "UNAUTHORIZED", "Нужен вход");
     }
 
-    return { user };
+    return { user: await this.withUsage(user) };
+  }
+
+  private async withUsage(user: AuthIdentity): Promise<PublicUser> {
+    const usage = await this.quota.snapshot(user.id);
+    return { ...user, ...usage };
   }
 
   private async insertRefresh(
@@ -204,7 +212,7 @@ export class AuthService {
   }
 
   private async issueSession(
-    user: PublicUser,
+    user: AuthIdentity,
     meta: SessionMeta,
     familyId?: string,
   ) {
@@ -216,7 +224,7 @@ export class AuthService {
     );
 
     return {
-      user,
+      user: await this.withUsage(user),
       accessToken: this.tokens.signAccess({ sub: user.id, role: user.role }),
       refreshToken: issued.token,
     };
@@ -303,7 +311,7 @@ export class AuthService {
   private async rotate(
     tx: RefreshDb,
     row: LockedRefreshRow,
-    user: PublicUser,
+    user: AuthIdentity,
     meta: SessionMeta,
   ): Promise<IssuedSession> {
     const { issued, rowId } = await this.insertRefresh(
@@ -400,7 +408,10 @@ export class AuthService {
     });
 
     if (outcome.kind === "session" || outcome.kind === "replay") {
-      return outcome.session;
+      return {
+        ...outcome.session,
+        user: await this.withUsage(outcome.session.user),
+      };
     }
 
     if (outcome.logReuse) {

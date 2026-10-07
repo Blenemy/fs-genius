@@ -20,12 +20,29 @@ export const ALLOWED_MEDIA_TYPES = [
 ] as const;
 
 export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-export const MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024;
+export const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
 
 export type AllowedMediaType = (typeof ALLOWED_MEDIA_TYPES)[number];
 
 export function isVideoType(contentType: string): boolean {
   return (ALLOWED_VIDEO_TYPES as readonly string[]).includes(contentType);
+}
+
+export function isImageType(contentType: string): boolean {
+  return (ALLOWED_IMAGE_TYPES as readonly string[]).includes(contentType);
+}
+
+export function isAllowedMediaType(
+  contentType: string,
+): contentType is AllowedMediaType {
+  return (ALLOWED_MEDIA_TYPES as readonly string[]).includes(contentType);
+}
+
+/** Картинка и ролик упираются в разные потолки. Класс решает, какой. */
+export function mediaClassOf(contentType: string): "image" | "video" | null {
+  if (isImageType(contentType)) return "image";
+  if (isVideoType(contentType)) return "video";
+  return null;
 }
 
 export const presignSchema = z
@@ -43,7 +60,7 @@ export const presignSchema = z
         code: "custom",
         path: ["sizeBytes"],
         message: isVideoType(data.contentType)
-          ? "Файл больше 2 ГБ"
+          ? "Файл больше 500 МБ"
           : "Файл больше 20 МБ",
       });
     }

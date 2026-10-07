@@ -4,21 +4,27 @@ import { uploadsService } from "../../lib/container.js";
 import { parseOrThrow } from "../../lib/parse.js";
 import { presignSchema } from "./uploads.schema.js";
 import { requireAuth } from "../../middleware/auth.js";
+import { presignRateLimit } from "../../middleware/rate-limit.js";
 
 export const uploadRouter: Router = Router();
 
-uploadRouter.post("/uploads/presign", requireAuth, async (req, res) => {
-  const user = req.user;
+uploadRouter.post(
+  "/uploads/presign",
+  requireAuth,
+  presignRateLimit,
+  async (req, res) => {
+    const user = req.user;
 
-  const data = parseOrThrow(
-    presignSchema,
-    req.body,
-    "Некорректные данные файла",
-  );
+    const data = parseOrThrow(
+      presignSchema,
+      req.body,
+      "Некорректные данные файла",
+    );
 
-  const result = await uploadsService.presign(data, user!.id);
-  res.status(200).json(result);
-});
+    const result = await uploadsService.presign(data, user!.id);
+    res.status(200).json(result);
+  },
+);
 
 uploadRouter.post("/uploads/:id/complete", requireAuth, async (req, res) => {
   const assetId = req.params.id as string | undefined;

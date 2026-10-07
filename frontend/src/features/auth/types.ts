@@ -6,6 +6,11 @@ export interface AuthUser {
   email: string;
   name: string;
   role: UserRole;
+  quotaBytes: number;
+  usedBytes: number;
+  videoBusy: boolean;
+  globalQuotaBytes: number;
+  globalUsedBytes: number;
 }
 
 export interface LoginInput {

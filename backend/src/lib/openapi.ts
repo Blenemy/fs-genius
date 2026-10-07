@@ -74,12 +74,27 @@ export function buildOpenApiSpec() {
         },
         PublicUser: {
           type: "object",
-          required: ["id", "email", "name", "role"],
+          required: [
+            "id",
+            "email",
+            "name",
+            "role",
+            "quotaBytes",
+            "usedBytes",
+            "videoBusy",
+            "globalQuotaBytes",
+            "globalUsedBytes",
+          ],
           properties: {
             id: { type: "string" },
             email: { type: "string", format: "email" },
             name: { type: "string" },
             role: { type: "string", enum: ["USER", "ADMIN"] },
+            quotaBytes: { type: "integer", example: 524288000 },
+            usedBytes: { type: "integer", example: 0 },
+            videoBusy: { type: "boolean" },
+            globalQuotaBytes: { type: "integer", example: 1073741824 },
+            globalUsedBytes: { type: "integer", example: 0 },
           },
         },
         AuthUserResponse: {

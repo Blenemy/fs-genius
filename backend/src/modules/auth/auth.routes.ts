@@ -9,6 +9,7 @@ import {
   type SessionMeta,
 } from "./auth.schema.js";
 import { requireAuth } from "../../middleware/auth.js";
+import { loginRateLimit, registerRateLimit } from "../../middleware/rate-limit.js";
 
 export const authRouter: Router = Router();
 
@@ -19,7 +20,7 @@ function sessionMeta(req: Request): SessionMeta {
   };
 }
 
-authRouter.post("/auth/login", async (req, res) => {
+authRouter.post("/auth/login", loginRateLimit, async (req, res) => {
   const data = parseOrThrow(loginSchema, req.body, "Проверь заполненные поля");
 
   const { user, accessToken, refreshToken } = await authService.login(
@@ -31,7 +32,7 @@ authRouter.post("/auth/login", async (req, res) => {
   res.status(200).json({ user });
 });
 
-authRouter.post("/auth/register", async (_req, res) => {
+authRouter.post("/auth/register", registerRateLimit, async (_req, res) => {
   const data = parseOrThrow(
     registerSchema,
     _req.body,

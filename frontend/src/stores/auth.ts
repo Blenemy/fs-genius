@@ -22,6 +22,7 @@ interface AuthState {
   login: (input: LoginInput) => Promise<boolean>;
   register: (input: RegisterInput) => Promise<boolean>;
   logout: () => Promise<void>;
+  refreshUsage: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -86,6 +87,15 @@ export const useAuthStore = create<AuthState>((set) => ({
       await logoutRequest();
     } catch {}
     set({ user: null, status: "guest", error: null });
+  },
+
+  refreshUsage: async () => {
+    try {
+      const body = await fetchMe();
+      set({ user: body.user, status: "authed" });
+    } catch {
+      // Usage is a hint. Auth errors belong to bootstrap/login.
+    }
   },
 
   clearError: () => set({ error: null }),

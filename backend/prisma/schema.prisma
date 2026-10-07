@@ -68,9 +68,9 @@ model User {
   /// /stop или 403: привязка жива, уведомления не шлём.
   telegramMuted Boolean @default(false)
 
-  /// Байты считаются агрегатом по загрузкам, но лежат и здесь —
-  /// чтобы было с чем сравнить результат тяжёлого запроса.
-  quotaBytes  BigInt    @default(1073741824)
+  /// Потолок хранения на пользователя: 500 МБ. Живой расход —
+  /// сумма активов и вариантов, не это поле.
+  quotaBytes  BigInt    @default(524288000)
   lastLoginAt DateTime?
 
   uploads              Upload[]
@@ -212,12 +212,17 @@ model Asset {
   bitrate    Int?
 
   createdAt    DateTime    @default(now())
+  /// Срок хранения. Уборщик удаляет актив и объекты в хранилище.
+  expiresAt    DateTime
 
   jobs        Job[]
   derivatives Derivative[]
 
   @@index([userId])
   @@index([status])
+  @@index([status, createdAt])
+  @@index([expiresAt])
+  @@index([userId, status])
 }
 
 /// Единица работы над активом. Переживает рестарт воркера — в отличие от
@@ -245,6 +250,11 @@ model Job {
 
   @@index([assetId])
   @@index([status, createdAt])
+}
+
+/// Одна строка (id = 1). FOR UPDATE сериализует проверку общего потолка хранилища.
+model QuotaLock {
+  id Int @id
 }
 
 model Derivative {

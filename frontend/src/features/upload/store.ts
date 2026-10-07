@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { completeUpload, presignUpload, putToStorage } from './api';
+import { useAuthStore } from '@/stores/auth';
 import {
   contentTypeFor,
   formatBytes,
@@ -46,6 +47,20 @@ function validateFile(file: File): string | null {
   }
   if (file.size === 0) {
     return 'Пустой файл';
+  }
+  const user = useAuthStore.getState().user;
+  if (user && kind === 'video' && user.videoBusy) {
+    return 'Уже обрабатывается одно видео. Дождись окончания или отмени его.';
+  }
+  if (user && user.usedBytes + file.size > user.quotaBytes) {
+    return `Не хватает места в квоте ${formatBytes(user.quotaBytes)}`;
+  }
+  if (
+    user &&
+    user.globalQuotaBytes > 0 &&
+    user.globalUsedBytes + file.size > user.globalQuotaBytes
+  ) {
+    return `Общее хранилище ${formatBytes(user.globalQuotaBytes)} заполнено`;
   }
   return null;
 }
@@ -133,11 +148,13 @@ export const useUploadStore = create<UploadState>((set, get) => ({
       set({ phase: 'completing', progress: 100 });
       await completeUpload(presign.assetId);
       set({ phase: 'done' });
+      void useAuthStore.getState().refreshUsage();
     } catch (err) {
       set({
         phase: 'error',
         error: err instanceof Error ? err.message : 'Неизвестная ошибка',
       });
+      void useAuthStore.getState().refreshUsage();
     }
   },
 

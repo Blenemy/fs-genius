@@ -45,6 +45,14 @@ export const publicUserSelect = {
   role: true,
 } satisfies Prisma.UserSelect;
 
-export type PublicUser = Prisma.UserGetPayload<{
+export type AuthIdentity = Prisma.UserGetPayload<{
   select: typeof publicUserSelect;
 }>;
+
+export type PublicUser = AuthIdentity & {
+  quotaBytes: number;
+  usedBytes: number;
+  videoBusy: boolean;
+  globalQuotaBytes: number;
+  globalUsedBytes: number;
+};

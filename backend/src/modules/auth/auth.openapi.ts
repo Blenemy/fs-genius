@@ -39,6 +39,9 @@ export function registerAuthDocs(): void {
         "401": jsonError(
           "INVALID_CREDENTIALS — одна формулировка и для неизвестной почты, и для неверного пароля. Не ветвить UI по тексту.",
         ),
+        "429": jsonError(
+          "RATE_LIMITED — слишком много неудачных входов с этого IP. Успешный вход бюджет не тратит.",
+        ),
       },
     },
   });

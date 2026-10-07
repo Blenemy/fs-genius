@@ -20,6 +20,7 @@ import {
   WorkerShutdownError,
 } from "./job-abort.js";
 import type { AssetKind } from "../generated/prisma/client.js";
+import { isImageType, isVideoType } from "../modules/uploads/uploads.schema.js";
 import { probeVideoFile } from "../lib/ffprobe.js";
 import {
   isDuplicateJobId,
@@ -34,20 +35,6 @@ import {
 
 /** Default sharp cap is ~268 MP; a 2 MB file can still unpack past that. */
 const LIMIT_INPUT_PIXELS = 64_000_000;
-
-const IMAGE_MIMES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-]);
-
-const VIDEO_MIMES = new Set([
-  "video/mp4",
-  "video/quicktime",
-  "video/webm",
-  "video/x-matroska",
-]);
 
 export class ProbeProcessor {
   private readonly log = childLogger({ processor: "probe" });
@@ -98,7 +85,7 @@ export class ProbeProcessor {
         throw new UnrecoverableError("Unknown file type");
       }
 
-      if (VIDEO_MIMES.has(mime)) {
+      if (isVideoType(mime)) {
         const meta = await probeVideoFile(originalPath, signal);
         await this.cancel.throwIf(job.data.jobId, job.data.assetId);
         await prisma.asset.update({
@@ -128,7 +115,7 @@ export class ProbeProcessor {
         return;
       }
 
-      if (!IMAGE_MIMES.has(mime)) {
+      if (!isImageType(mime)) {
         throw new UnrecoverableError(`Unsupported media type: ${mime}`);
       }
 

@@ -4,9 +4,11 @@ export const QUEUE_NAMES = {
   mediaImage: 'media-image',
   mediaVideo: 'media-video',
   notify: 'notify',
+  cleanup: 'cleanup',
 } as const;
 
 export const PROBE_JOB_NAME = 'probe';
 export const IMAGE_JOB_NAME = 'image';
 export const VIDEO_JOB_NAME = 'video';
 export const NOTIFY_JOB_NAME = 'notify';
+export const CLEANUP_JOB_NAME = 'tick';

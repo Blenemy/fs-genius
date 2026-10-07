@@ -25,6 +25,8 @@ export type NotifyJobData = {
   fileSent?: boolean;
 };
 
+export type CleanupJobData = Record<string, never>;
+
 export type JobCounts = {
   waiting: number;
   active: number;

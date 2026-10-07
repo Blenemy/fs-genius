@@ -14,17 +14,26 @@ export function App() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const applyAsset = useLibraryStore((s) => s.applyAsset);
+  const refreshUsage = useAuthStore((s) => s.refreshUsage);
 
   useEffect(
     () =>
       connect((event) => {
         if (event.type === "snapshot") {
           for (const asset of event.assets) applyAsset(asset);
+          void refreshUsage();
           return;
         }
         applyAsset(event.asset);
+        if (
+          event.asset.status === "READY" ||
+          event.asset.status === "FAILED" ||
+          event.asset.status === "CANCELED"
+        ) {
+          void refreshUsage();
+        }
       }),
-    [connect, applyAsset],
+    [connect, applyAsset, refreshUsage],
   );
 
   const initials = (user?.name ?? user?.email ?? "?").trim().charAt(0).toUpperCase();

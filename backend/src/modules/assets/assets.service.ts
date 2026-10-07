@@ -6,12 +6,14 @@ import type {
 } from "../../generated/prisma/client.js";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../middleware/error.js";
-import { deleteObject, headObject, presignGet } from "../../lib/s3.js";
+import { headObject, presignGet } from "../../lib/s3.js";
 import type { ProbeQueue } from "../../queues/probe.queue.js";
 import type { ImageQueue } from "../../queues/image.queue.js";
 import type { VideoQueue } from "../../queues/video.queue.js";
 import type { JobCancelStore } from "../../lib/job-cancel.js";
 import type { MediaEventsPublisher } from "../../lib/media-events-publisher.js";
+import type { QuotaService } from "../quota/quota.service.js";
+import { purgeAsset } from "../cleanup/purge.js";
 
 export type AssetClient = {
   id: string;
@@ -95,6 +97,7 @@ export class AssetService {
     private readonly videoQueue: VideoQueue,
     private readonly cancelStore: JobCancelStore,
     private readonly mediaEvents: MediaEventsPublisher,
+    private readonly quota: QuotaService,
   ) {}
 
   async getAssets(userId: string) {
@@ -196,29 +199,14 @@ export class AssetService {
   async deleteAsset(assetId: string, userId: string) {
     const asset = await this.prisma.asset.findUnique({
       where: { id: assetId },
-      include: { derivatives: true },
+      select: { id: true, userId: true },
     });
 
     if (!asset || asset.userId !== userId) {
       throw new AppError(404, "NOT_FOUND", "Файл не найден");
     }
 
-    const keys = [
-      asset.storageKey,
-      ...asset.derivatives.map((d) => d.storageKey),
-    ];
-
-    try {
-      await Promise.all(keys.map((key) => deleteObject(key)));
-    } catch {
-      throw new AppError(
-        503,
-        "STORAGE_UNAVAILABLE",
-        "Не удалось удалить файл из хранилища",
-      );
-    }
-
-    await this.prisma.asset.delete({ where: { id: assetId } });
+    await purgeAsset(this.prisma, asset.id);
   }
 
   async cancelAsset(assetId: string, userId: string) {
@@ -321,24 +309,50 @@ export class AssetService {
     await this.cancelStore.clearAsset(assetId);
     await Promise.all(asset.jobs.map((job) => this.cancelStore.clear(job.id)));
 
-    const jobType = this.restartJobType(asset.kind, asset.durationMs);
-    const mediaJob = await this.prisma.job.create({
-      data: {
-        assetId: asset.id,
-        type: jobType,
-        status: "QUEUED",
+    const claimed = await this.quota.withUserLock(
+      userId,
+      async (tx, _quota, assets) => {
+        const current = await tx.asset.findUnique({
+          where: { id: asset.id },
+        });
+        if (!current || current.userId !== userId) {
+          throw new AppError(404, "NOT_FOUND", "Файл не найден");
+        }
+        if (current.status !== "CANCELED" && current.status !== "FAILED") {
+          throw new AppError(
+            409,
+            "NOT_RESTARTABLE",
+            "Повторить можно только отменённый или упавший файл",
+          );
+        }
+
+        this.quota.ensureVideoSlot(
+          assets,
+          current.kind,
+          current.contentType,
+          current.id,
+        );
+
+        const jobType = this.restartJobType(current.kind, current.durationMs);
+        const mediaJob = await tx.job.create({
+          data: {
+            assetId: current.id,
+            type: jobType,
+            status: "QUEUED",
+          },
+        });
+        await tx.asset.update({
+          where: { id: current.id },
+          data: { status: "PROCESSING" },
+        });
+        return { mediaJob, jobType, userId: current.userId };
       },
-    });
+    );
 
-    await this.prisma.asset.update({
-      where: { id: asset.id },
-      data: { status: "PROCESSING" },
-    });
-
-    const queued = await this.enqueueRestart(jobType, {
+    const queued = await this.enqueueRestart(claimed.jobType, {
       assetId: asset.id,
-      userId: asset.userId,
-      jobId: mediaJob.id,
+      userId: claimed.userId,
+      jobId: claimed.mediaJob.id,
     }).catch(async (err: unknown) => {
       await this.prisma.asset.update({
         where: { id: asset.id },
@@ -350,7 +364,7 @@ export class AssetService {
     });
 
     await this.prisma.job.update({
-      where: { id: mediaJob.id },
+      where: { id: claimed.mediaJob.id },
       data: { queueJobId: String(queued.id) },
     });
 

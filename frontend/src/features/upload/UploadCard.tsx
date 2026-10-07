@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { ACCEPT_MEDIA, formatBytes, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "./types";
 import { useUploadStore, type UploadPhase } from "./store";
+import { useAuthStore } from "@/stores/auth";
 
 /** Подпись, точка-индикатор и её цвет — всё, чем фаза отличается на экране. */
 const PHASES: Record<UploadPhase, { label: string; tone: string }> = {
@@ -37,6 +38,9 @@ export function UploadCard() {
     start,
     reset,
   } = useUploadStore();
+  const user = useAuthStore((s) => s.user);
+  const usedBytes = user?.usedBytes ?? 0;
+  const quotaBytes = user?.quotaBytes ?? MAX_VIDEO_BYTES;
   const [dragOver, setDragOver] = useState(false);
   const [previewBroken, setPreviewBroken] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -65,6 +69,23 @@ export function UploadCard() {
             <span className={cn("size-1.5 rounded-full", meta.tone)} />
             {meta.label}
           </span>
+        </div>
+
+        <div className="space-y-3">
+          <QuotaMeter label="Твои файлы" used={usedBytes} cap={quotaBytes} />
+          {typeof user?.globalQuotaBytes === "number" &&
+            user.globalQuotaBytes > 0 && (
+              <QuotaMeter
+                label="Общее хранилище"
+                used={user.globalUsedBytes ?? 0}
+                cap={user.globalQuotaBytes}
+              />
+            )}
+          {user?.videoBusy && (
+            <p className="text-muted-foreground font-mono text-xs">
+              Слот видео занят — картинки можно, второе видео нет
+            </p>
+          )}
         </div>
 
         <input
@@ -215,5 +236,37 @@ export function UploadCard() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function QuotaMeter({
+  label,
+  used,
+  cap,
+}: {
+  label: string;
+  used: number;
+  cap: number;
+}) {
+  const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-muted-foreground flex items-center justify-between gap-3 font-mono text-xs">
+        <span className="min-w-0 truncate">
+          {label} · {formatBytes(used)} из {formatBytes(cap)}
+        </span>
+        <span>{pct}%</span>
+      </div>
+      <div className="bg-muted h-1 overflow-hidden rounded-full">
+        <div
+          className={cn(
+            "h-full rounded-full",
+            pct >= 95 ? "bg-destructive" : "bg-primary/80",
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
   );
 }

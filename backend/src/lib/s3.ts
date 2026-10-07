@@ -5,10 +5,12 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { env } from "../config/env.js";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createReadStream, createWriteStream } from "node:fs";
+import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 export type StorageCheck =
@@ -150,7 +152,7 @@ export async function presignGet(
 }
 
 function attachmentDisposition(name: string): string {
-  const fallback = name.replace(/[^\w.\-]+/g, "_") || "file";
+  const fallback = name.replace(/[^\w.-]+/g, "_") || "file";
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
@@ -164,6 +166,34 @@ export async function deleteObject(key: string): Promise<void> {
     );
   } catch (err) {
     if (isNotFound(err)) return;
+    throw err;
+  }
+}
+
+/**
+ * Первые `length` байт объекта. Range, чтобы API не вычитывал ролик целиком,
+ * если хранилище диапазон проигнорирует — поток обрывается на лимите.
+ */
+export async function getObjectPrefix(
+  key: string,
+  length: number,
+): Promise<Buffer | null> {
+  const config = assertS3Configured();
+
+  try {
+    const result = await getS3().send(
+      new GetObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+        Range: `bytes=0-${Math.max(0, length - 1)}`,
+      }),
+      { abortSignal: AbortSignal.timeout(5000) },
+    );
+    if (!result.Body) return Buffer.alloc(0);
+    return await readAtMost(result.Body, length);
+  } catch (err) {
+    if (isNotFound(err)) return null;
+    if (statusOf(err) === 416) return Buffer.alloc(0);
     throw err;
   }
 }
@@ -237,16 +267,78 @@ export async function putObjectToS3(
   );
 }
 
+export async function listObjectKeys(prefix = ""): Promise<string[]> {
+  const config = assertS3Configured();
+  const keys: string[] = [];
+  let token: string | undefined;
+
+  do {
+    const page = await getS3().send(
+      new ListObjectsV2Command({
+        Bucket: config.bucket,
+        Prefix: prefix || undefined,
+        ContinuationToken: token,
+      }),
+      { abortSignal: AbortSignal.timeout(15_000) },
+    );
+    for (const obj of page.Contents ?? []) {
+      if (obj.Key) keys.push(obj.Key);
+    }
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+
+  return keys;
+}
+
 function composeAbort(user: AbortSignal | undefined, ms: number): AbortSignal {
   const timeout = AbortSignal.timeout(ms);
   return user ? AbortSignal.any([user, timeout]) : timeout;
+}
+
+async function readAtMost(body: unknown, length: number): Promise<Buffer> {
+  if (!body || typeof body !== "object" || !(Symbol.asyncIterator in body)) {
+    return Buffer.alloc(0);
+  }
+
+  const stream = body as Readable;
+  const chunks: Buffer[] = [];
+  let got = 0;
+
+  try {
+    for await (const chunk of stream) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const need = length - got;
+      if (buf.length <= need) {
+        chunks.push(buf);
+        got += buf.length;
+      } else {
+        chunks.push(buf.subarray(0, need));
+        got += need;
+      }
+      if (got >= length) break;
+    }
+  } catch (err) {
+    if (got < length) throw err;
+  } finally {
+    try {
+      if (typeof stream.destroy === "function") stream.destroy();
+    } catch {
+      // Префикс уже в руках. Закрытие сокета — лучшее усилие.
+    }
+  }
+
+  return Buffer.concat(chunks);
+}
+
+function statusOf(err: unknown): number | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  return (err as { $metadata?: { httpStatusCode?: number } }).$metadata
+    ?.httpStatusCode;
 }
 
 function isNotFound(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const name = "name" in err ? String(err.name) : "";
   if (name === "NotFound" || name === "NoSuchKey") return true;
-  const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata
-    ?.httpStatusCode;
-  return status === 404;
+  return statusOf(err) === 404;
 }
