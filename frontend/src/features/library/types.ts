@@ -13,13 +13,15 @@ export type DerivKind =
   | 'PREVIEW'
   | 'POSTER'
   | 'VIDEO_720P'
-  | 'AUDIO_MP3';
+  | 'AUDIO_MP3'
+  | 'EXPORT';
 
 export type JobType =
   | 'PROBE'
   | 'IMAGE_VARIANTS'
   | 'VIDEO_TRANSCODE'
-  | 'AUDIO_EXTRACT';
+  | 'AUDIO_EXTRACT'
+  | 'EDIT';
 
 export type JobStatus = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELED';
 
@@ -64,6 +66,7 @@ export interface AssetDerivative extends AssetFileLink {
 export interface AssetJob {
   id: string;
   type: JobType;
+  presetKey?: string | null;
   status: JobStatus;
   error: string | null;
   attempts: number;
@@ -142,6 +145,7 @@ export const DERIV_LABEL: Record<DerivKind, string> = {
   PREVIEW: 'Превью',
   VIDEO_720P: 'Видео 720p',
   AUDIO_MP3: 'Аудио MP3',
+  EXPORT: 'Результат',
 };
 
 export const JOB_TYPE_LABEL: Record<JobType, string> = {
@@ -149,6 +153,7 @@ export const JOB_TYPE_LABEL: Record<JobType, string> = {
   IMAGE_VARIANTS: 'Превью',
   VIDEO_TRANSCODE: 'Видео 720p',
   AUDIO_EXTRACT: 'Аудио',
+  EDIT: 'Пресет',
 };
 
 export const JOB_STATUS_LABEL: Record<JobStatus, string> = {

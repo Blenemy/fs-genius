@@ -69,6 +69,23 @@ test("countsOriginalObject: processing video still on disk", () => {
   assert.equal(countsOriginalObject("READY", "VIDEO"), false);
 });
 
+test("usedBytes: processing video with 720p skips the deleted original", () => {
+  const used = usedBytesOf([
+    {
+      id: "e",
+      sizeBytes: 50_000n,
+      status: "PROCESSING",
+      kind: "VIDEO",
+      contentType: "video/mp4",
+      derivatives: [
+        { sizeBytes: 2_000n, kind: "VIDEO_720P" },
+        { sizeBytes: 100n, kind: "POSTER" },
+      ],
+    },
+  ]);
+  assert.equal(used, 2_100n);
+});
+
 test("activeVideoCount: one processing video", () => {
   const n = activeVideoCount([
     {
@@ -126,11 +143,11 @@ test("formatQuotaBytes: 500 MB", () => {
   assert.equal(formatQuotaBytes(500 * 1024 * 1024), "500 МБ");
 });
 
-test("formatQuotaBytes: 1 GB shared cap", () => {
-  assert.equal(formatQuotaBytes(GLOBAL_QUOTA_BYTES), "1 ГБ");
+test("formatQuotaBytes: 7 GB shared cap", () => {
+  assert.equal(formatQuotaBytes(GLOBAL_QUOTA_BYTES), "7 ГБ");
 });
 
-test("exceedsQuota: shared cap blocks the byte past 1 GB", () => {
+test("exceedsQuota: shared cap blocks the byte past 7 GB", () => {
   const cap = BigInt(GLOBAL_QUOTA_BYTES);
   assert.equal(exceedsQuota(cap - 1n, 1n, cap), false);
   assert.equal(exceedsQuota(cap, 1n, cap), true);

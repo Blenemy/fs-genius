@@ -1,3 +1,5 @@
+import type { EditJobPayload } from "./edits.js";
+
 export type ProbeJobData = {
   assetId: string;
   userId: string;
@@ -8,12 +10,14 @@ export type ImageJobData = {
   assetId: string;
   userId: string;
   jobId: string;
+  edit?: EditJobPayload;
 };
 
 export type VideoJobData = {
   assetId: string;
   userId: string;
   jobId: string;
+  edit?: EditJobPayload;
 };
 
 export type NotifyJobData = {

@@ -14,6 +14,14 @@ import type { JobCancelStore } from "../../lib/job-cancel.js";
 import type { MediaEventsPublisher } from "../../lib/media-events-publisher.js";
 import type { QuotaService } from "../quota/quota.service.js";
 import { purgeAsset } from "../cleanup/purge.js";
+import type { EditJobPayload } from "../../shared/edits.js";
+import {
+  editReserveBytes,
+  exportFile,
+  normalizeEdit,
+  toEditPayload,
+} from "../../shared/edits.js";
+import type { EditRequestBody } from "./assets.schema.js";
 
 export type AssetClient = {
   id: string;
@@ -50,6 +58,7 @@ export type AssetDerivativeClient = AssetFileLink & {
 export type AssetJobClient = {
   id: string;
   type: JobType;
+  presetKey: string | null;
   status: string;
   error: string | null;
   attempts: number;
@@ -148,7 +157,7 @@ export class AssetService {
       [...row.derivatives]
         .sort((a, b) => derivOrder(a.kind) - derivOrder(b.kind))
         .map(async (item) => {
-          const name = downloadName(row.originalName, item.kind);
+          const name = downloadName(row.originalName, item.kind, item.mimeType);
           return {
             kind: item.kind,
             mimeType: item.mimeType,
@@ -186,6 +195,7 @@ export class AssetService {
       jobs: row.jobs.map((job) => ({
         id: job.id,
         type: job.type,
+        presetKey: job.presetKey,
         status: job.status,
         error: job.error,
         attempts: job.attempts,
@@ -220,7 +230,7 @@ export class AssetService {
     }
 
     if (asset.status === "CANCELED") {
-      return { ok: true as const, pending: false };
+      return { ok: true as const, pending: false, status: "CANCELED" as const };
     }
 
     if (asset.status === "READY") {
@@ -245,10 +255,13 @@ export class AssetService {
     ]);
 
     const running = openJobs.some((job) => job.status === "RUNNING");
+    const editing =
+      openJobs.length > 0 && openJobs.every((job) => job.type === "EDIT");
     if (running) {
-      return { ok: true as const, pending: true };
+      return { ok: true as const, pending: true, status: "PROCESSING" as const };
     }
 
+    const nextStatus = editing ? "READY" : "CANCELED";
     await this.prisma.job.updateMany({
       where: {
         assetId,
@@ -258,15 +271,191 @@ export class AssetService {
     });
     await this.prisma.asset.update({
       where: { id: assetId },
-      data: { status: "CANCELED" },
+      data: { status: nextStatus },
     });
     await this.mediaEvents.publish({
       userId,
       assetId,
-      status: "CANCELED",
+      status: nextStatus,
     });
 
-    return { ok: true as const, pending: false };
+    return { ok: true as const, pending: false, status: nextStatus };
+  }
+
+  async startEdit(assetId: string, userId: string, body: EditRequestBody) {
+    const asset = await this.prisma.asset.findUnique({
+      where: { id: assetId },
+      include: { derivatives: true, jobs: true },
+    });
+
+    if (!asset || asset.userId !== userId) {
+      throw new AppError(404, "NOT_FOUND", "Файл не найден");
+    }
+    if (asset.status !== "READY") {
+      throw new AppError(
+        409,
+        "NOT_READY",
+        "Сначала дождись окончания обработки",
+      );
+    }
+    if (asset.kind !== "IMAGE" && asset.kind !== "VIDEO") {
+      throw new AppError(409, "NOT_READY", "Файл ещё не разобран");
+    }
+
+    const normalized = normalizeEdit(asset.kind, body, asset.durationMs);
+    if (!normalized.ok) {
+      throw new AppError(400, "VALIDATION_FAILED", normalized.message);
+    }
+    const edit = normalized.edit;
+
+    const source =
+      edit.kind === "image"
+        ? { key: asset.storageKey, sizeBytes: asset.sizeBytes }
+        : (() => {
+            const rendition = asset.derivatives.find(
+              (item) => item.kind === "VIDEO_720P",
+            );
+            return rendition
+              ? { key: rendition.storageKey, sizeBytes: rendition.sizeBytes }
+              : null;
+          })();
+    if (!source) {
+      throw new AppError(
+        409,
+        "NO_RENDITION",
+        "Нет готового ролика. Дождись обработки или загрузи заново",
+      );
+    }
+
+    let head;
+    try {
+      head = await headObject(source.key);
+    } catch {
+      throw new AppError(
+        503,
+        "STORAGE_UNAVAILABLE",
+        "Не удалось проверить файл в хранилище",
+      );
+    }
+    if (!head) {
+      throw new AppError(
+        409,
+        "SOURCE_GONE",
+        edit.kind === "video"
+          ? "Ролик 720p уже удалён, загрузи заново"
+          : "Исходный файл уже удалён, загрузи заново",
+      );
+    }
+
+    const file = exportFile(edit);
+    const dir = pathDir(asset.storageKey);
+    const nextKey = dir ? `${dir}/${file.name}` : file.name;
+    const previous = asset.derivatives.find((item) => item.kind === "EXPORT");
+    const sourceBytes =
+      head.contentLength > 0 ? BigInt(head.contentLength) : source.sizeBytes;
+    // Video edits overwrite the 720p in place; reserve the whole source as the
+    // upper bound because the re-encode can come out larger than its input.
+    const reserve = editReserveBytes(
+      sourceBytes,
+      previous && edit.kind === "image"
+        ? { sizeBytes: previous.sizeBytes, storageKey: previous.storageKey }
+        : null,
+      nextKey,
+    );
+    const contentType = edit.kind === "video" ? "video/mp4" : "image/jpeg";
+    await this.quota.ensureWriteBudget();
+
+    const claimed = await this.quota.withUserLock(
+      userId,
+      async (tx, quota, assets) => {
+        const current = await tx.asset.findUnique({
+          where: { id: asset.id },
+          include: {
+            jobs: {
+              where: { status: { in: ["QUEUED", "RUNNING"] } },
+              select: { id: true },
+            },
+          },
+        });
+        if (!current || current.userId !== userId) {
+          throw new AppError(404, "NOT_FOUND", "Файл не найден");
+        }
+        if (current.status !== "READY") {
+          throw new AppError(
+            409,
+            "NOT_READY",
+            "Сначала дождись окончания обработки",
+          );
+        }
+        if (current.jobs.length > 0) {
+          throw new AppError(409, "BUSY", "Уже идёт обработка");
+        }
+
+        this.quota.ensureVideoSlot(
+          assets,
+          current.kind,
+          contentType,
+          current.id,
+        );
+        this.quota.ensureFits(quota, assets, reserve, contentType);
+        await this.quota.ensureGlobalFits(tx, reserve);
+
+        const mediaJob = await tx.job.create({
+          data: {
+            assetId: current.id,
+            type: "EDIT",
+            status: "QUEUED",
+            presetKey: edit.preset,
+            presetParams:
+              edit.kind === "video" && edit.preset === "trim"
+                ? { startMs: edit.startMs, endMs: edit.endMs }
+                : undefined,
+          },
+        });
+        await tx.asset.update({
+          where: { id: current.id },
+          data: { status: "PROCESSING" },
+        });
+        return { mediaJob, userId: current.userId };
+      },
+    );
+
+    const payload = toEditPayload(edit);
+    const queued = await this.enqueueEdit(edit.kind === "video" ? "VIDEO" : "IMAGE", {
+      assetId: asset.id,
+      userId: claimed.userId,
+      jobId: claimed.mediaJob.id,
+      edit: payload,
+    }).catch(async (err: unknown) => {
+      await this.prisma.job.update({
+        where: { id: claimed.mediaJob.id },
+        data: {
+          status: "FAILED",
+          error: "Не удалось поставить задачу",
+          finishedAt: new Date(),
+        },
+      });
+      await this.prisma.asset.update({
+        where: { id: asset.id },
+        data: { status: "READY" },
+      });
+      throw err instanceof AppError
+        ? err
+        : new AppError(503, "QUEUE_UNAVAILABLE", "Не удалось поставить задачу");
+    });
+
+    await this.prisma.job.update({
+      where: { id: claimed.mediaJob.id },
+      data: { queueJobId: String(queued.id) },
+    });
+    await this.mediaEvents.publish({
+      userId: asset.userId,
+      assetId: asset.id,
+      status: "PROCESSING",
+      progress: 0,
+    });
+
+    return { ok: true as const, status: "PROCESSING" as const };
   }
 
   async restartAsset(assetId: string, userId: string) {
@@ -306,6 +495,7 @@ export class AssetService {
       );
     }
 
+    await this.quota.ensureWriteBudget();
     await this.cancelStore.clearAsset(assetId);
     await Promise.all(asset.jobs.map((job) => this.cancelStore.clear(job.id)));
 
@@ -388,6 +578,21 @@ export class AssetService {
     return "PROBE";
   }
 
+  private enqueueEdit(
+    kind: "IMAGE" | "VIDEO",
+    data: {
+      assetId: string;
+      userId: string;
+      jobId: string;
+    edit: EditJobPayload;
+    },
+  ) {
+    if (kind === "VIDEO") {
+      return this.addFresh(this.videoQueue, data);
+    }
+    return this.addFresh(this.imageQueue, data);
+  }
+
   private enqueueRestart(
     type: JobType,
     data: { assetId: string; userId: string; jobId: string },
@@ -403,7 +608,12 @@ export class AssetService {
 
   private async addFresh(
     queue: ProbeQueue | ImageQueue | VideoQueue,
-    data: { assetId: string; userId: string; jobId: string },
+    data: {
+      assetId: string;
+      userId: string;
+      jobId: string;
+      edit?: EditJobPayload;
+    },
   ) {
     await queue.discard(data.assetId).catch(() => undefined);
     try {
@@ -418,12 +628,20 @@ export class AssetService {
   }
 
   private async toClient(asset: AssetRow): Promise<AssetClient> {
+    const exported = asset.derivatives.find((item) => item.kind === "EXPORT");
+    const exportImage = exported?.mimeType.startsWith("image/")
+      ? exported
+      : null;
+    const exportVideo = exported?.mimeType.startsWith("video/")
+      ? exported
+      : null;
     const thumb = asset.derivatives.find((d) => d.kind === "THUMBNAIL");
     const poster = asset.derivatives.find((d) => d.kind === "POSTER");
     const video = asset.derivatives.find((d) => d.kind === "VIDEO_720P");
-    const still = thumb ?? poster;
+    const still = exportImage ?? thumb ?? poster;
+    const playback = exportVideo ?? video;
     const url = await presignGet(still?.storageKey ?? asset.storageKey);
-    const playbackUrl = video ? await presignGet(video.storageKey) : null;
+    const playbackUrl = playback ? await presignGet(playback.storageKey) : null;
 
     return {
       id: asset.id,
@@ -452,6 +670,7 @@ function toCount(value: bigint): number {
 
 function derivOrder(kind: DerivKind): number {
   const order: DerivKind[] = [
+    "EXPORT",
     "POSTER",
     "THUMBNAIL",
     "PREVIEW",
@@ -462,7 +681,11 @@ function derivOrder(kind: DerivKind): number {
   return index === -1 ? order.length : index;
 }
 
-function downloadName(originalName: string, kind: DerivKind): string {
+function downloadName(
+  originalName: string,
+  kind: DerivKind,
+  mimeType?: string,
+): string {
   const stem = originalName.replace(/\.[^.]+$/, "") || "file";
   switch (kind) {
     case "POSTER":
@@ -475,7 +698,21 @@ function downloadName(originalName: string, kind: DerivKind): string {
       return `${stem}_720p.mp4`;
     case "AUDIO_MP3":
       return `${stem}_audio.mp3`;
+    case "EXPORT":
+      return `${stem}_result.${exportExt(mimeType)}`;
     default:
       return originalName;
   }
+}
+
+function exportExt(mimeType: string | undefined): string {
+  if (mimeType === "image/webp") return "webp";
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "video/mp4") return "mp4";
+  return "jpg";
+}
+
+function pathDir(storageKey: string): string {
+  const slash = storageKey.lastIndexOf("/");
+  return slash === -1 ? "" : storageKey.slice(0, slash);
 }

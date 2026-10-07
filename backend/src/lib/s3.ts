@@ -8,6 +8,7 @@ import {
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { env } from "../config/env.js";
+import { countWriteOps } from "./storage-ops.js";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createReadStream, createWriteStream } from "node:fs";
 import { Readable } from "node:stream";
@@ -132,6 +133,8 @@ export async function presignPut(
     Key: key,
     ContentType: contentType,
   });
+  // The browser does the PUT; counted at signing because the api never sees it.
+  countWriteOps();
   return getSignedUrl(getS3(), command, { expiresIn: 900 });
 }
 
@@ -256,6 +259,7 @@ export async function putObjectToS3(
   const config = assertS3Configured();
 
   const readStream = createReadStream(filePath);
+  countWriteOps();
   await getS3().send(
     new PutObjectCommand({
       Bucket: config.bucket,
@@ -273,6 +277,7 @@ export async function listObjectKeys(prefix = ""): Promise<string[]> {
   let token: string | undefined;
 
   do {
+    countWriteOps();
     const page = await getS3().send(
       new ListObjectsV2Command({
         Bucket: config.bucket,

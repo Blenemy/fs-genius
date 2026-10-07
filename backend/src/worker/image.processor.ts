@@ -6,8 +6,11 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
 import { prisma } from "../lib/prisma.js";
-import { getObjectToFile, putObjectToS3 } from "../lib/s3.js";
+import { deleteObject, getObjectToFile, putObjectToS3 } from "../lib/s3.js";
+import { renderImageEdit } from "../lib/image-edit.js";
 import sharp from "sharp";
+import { isImageEditPreset } from "../shared/edits.js";
+import type { EditJobPayload } from "../shared/edits.js";
 import {
   isFatalJobError,
   isUnreadableMedia,
@@ -21,6 +24,7 @@ import type { MediaEventsPublisher } from "../lib/media-events-publisher.js";
 import type { JobCancelStore } from "../lib/job-cancel.js";
 import {
   persistCanceled,
+  persistEditCanceled,
   resolveAbort,
   startJobAbort,
   WorkerShutdownError,
@@ -64,6 +68,11 @@ export class ImageProcessor {
 
       await markJobRunning(jobId, job.attemptsMade);
       await this.cancel.throwIf(jobId, job.data.assetId);
+
+      if (job.data.edit) {
+        await this.runEdit(asset, job.data.edit, tmpDir, jobId, signal);
+        return;
+      }
 
       const originalPath = path.join(tmpDir, "original");
       await getObjectToFile(asset.storageKey, originalPath, signal);
@@ -122,11 +131,19 @@ export class ImageProcessor {
         this.shutdown,
       );
       if (abortKind === "canceled") {
-        await persistCanceled(
-          job.data.assetId,
-          job.data.userId,
-          this.mediaEvents,
-        );
+        if (job.data.edit) {
+          await persistEditCanceled(
+            job.data.assetId,
+            job.data.userId,
+            this.mediaEvents,
+          );
+        } else {
+          await persistCanceled(
+            job.data.assetId,
+            job.data.userId,
+            this.mediaEvents,
+          );
+        }
         return;
       }
       if (abortKind === "shutdown") {
@@ -141,6 +158,7 @@ export class ImageProcessor {
           job.data.assetId,
           job.data.userId,
           err,
+          Boolean(job.data.edit),
         );
       }
       if (err instanceof UnrecoverableError) throw err;
@@ -154,6 +172,61 @@ export class ImageProcessor {
       stopAbort?.();
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
+  }
+
+  private async runEdit(
+    asset: {
+      id: string;
+      userId: string;
+      storageKey: string;
+    },
+    edit: EditJobPayload,
+    tmpDir: string,
+    jobId: string,
+    signal: AbortSignal,
+  ) {
+    if (!isImageEditPreset(edit.preset)) {
+      throw new UnrecoverableError("preset mismatch");
+    }
+
+    const previous = await prisma.derivative.findUnique({
+      where: { assetId_kind: { assetId: asset.id, kind: "EXPORT" } },
+    });
+    const originalPath = path.join(tmpDir, "original");
+    await getObjectToFile(asset.storageKey, originalPath, signal);
+    await this.cancel.throwIf(jobId, asset.id);
+
+    const ext = edit.preset === "webp" ? "webp" : "jpg";
+    const mime = edit.preset === "webp" ? "image/webp" : "image/jpeg";
+    const outputPath = path.join(tmpDir, `export.${ext}`);
+    const rendered = await renderImageEdit(originalPath, outputPath, edit.preset);
+    await this.cancel.throwIf(jobId, asset.id);
+
+    const dir = path.posix.dirname(asset.storageKey);
+    const key = `${dir}/export.${ext}`;
+    await putObjectToS3(key, outputPath, mime, signal);
+    await this.saveDerivative(
+      asset.id,
+      jobId,
+      "EXPORT",
+      key,
+      rendered,
+      mime,
+    );
+    if (previous && previous.storageKey !== key) {
+      await deleteObject(previous.storageKey).catch((err: unknown) => {
+        this.log.warn({ err, key: previous.storageKey }, "old export delete failed");
+      });
+    }
+
+    await markJobDone(jobId);
+    await markAssetReady(asset.id);
+    await this.mediaEvents.publish({
+      userId: asset.userId,
+      assetId: asset.id,
+      status: "READY",
+    });
+    this.log.info({ key, preset: edit.preset }, "image edit stored");
   }
 
   private async resolveJobId(data: ImageJobData): Promise<string> {
@@ -174,6 +247,7 @@ export class ImageProcessor {
     assetId: string,
     userId: string,
     err: unknown,
+    keepReady = false,
   ): Promise<void> {
     if (jobId) {
       try {
@@ -183,15 +257,17 @@ export class ImageProcessor {
       }
     }
     try {
-      await markAssetFailed(assetId);
+      if (keepReady) await markAssetReady(assetId);
+      else await markAssetFailed(assetId);
     } catch (updateErr) {
       this.log.warn({ err: updateErr, assetId }, "failed to persist asset error");
     }
     await this.mediaEvents.publish({
       userId,
       assetId,
-      status: "FAILED",
+      status: keepReady ? "READY" : "FAILED",
     });
+    if (keepReady) return;
     await this.notifyQueue.add({
       userId,
       assetId,
@@ -206,6 +282,7 @@ export class ImageProcessor {
     kind: DerivKind,
     storageKey: string,
     info: { size: number; width: number; height: number },
+    mimeType = "image/webp",
   ) {
     return prisma.derivative.upsert({
       where: { assetId_kind: { assetId, kind } },
@@ -214,7 +291,7 @@ export class ImageProcessor {
         jobId,
         kind,
         storageKey,
-        mimeType: "image/webp",
+        mimeType,
         sizeBytes: BigInt(info.size),
         width: info.width,
         height: info.height,
@@ -222,7 +299,7 @@ export class ImageProcessor {
       update: {
         jobId,
         storageKey,
-        mimeType: "image/webp",
+        mimeType,
         sizeBytes: BigInt(info.size),
         width: info.width,
         height: info.height,

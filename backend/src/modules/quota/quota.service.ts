@@ -11,7 +11,10 @@ import {
   formatQuotaBytes,
   GLOBAL_QUOTA_BYTES,
   MAX_ACTIVE_VIDEOS,
+  MONTHLY_WRITE_OPS_CAP,
 } from "./limits.js";
+import { readWriteOps } from "../../lib/storage-ops.js";
+import { childLogger } from "../../lib/logger.js";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -24,6 +27,8 @@ export type QuotaSnapshot = {
 };
 
 export class QuotaService {
+  private readonly log = childLogger({ service: "quota" });
+
   constructor(private readonly prisma: PrismaClient) {}
 
   async snapshot(userId: string): Promise<QuotaSnapshot> {
@@ -117,6 +122,32 @@ export class QuotaService {
     );
   }
 
+  /**
+   * Предохранитель от счёта за операции: файлы можно грузить и удалять по
+   * кругу, место освобождается, а записи копятся. Без Redis считаем, что
+   * бюджет кончился — молча пропустить дороже, чем отказать.
+   */
+  async ensureWriteBudget(): Promise<void> {
+    let used: number;
+    try {
+      used = await readWriteOps();
+    } catch (err) {
+      this.log.warn({ err }, "write budget unknown, refusing");
+      throw new AppError(
+        503,
+        "WRITE_BUDGET_UNAVAILABLE",
+        "Сейчас нельзя загружать и обрабатывать файлы. Попробуй позже.",
+      );
+    }
+    if (used < MONTHLY_WRITE_OPS_CAP) return;
+    this.log.warn({ used, cap: MONTHLY_WRITE_OPS_CAP }, "write budget exhausted");
+    throw new AppError(
+      503,
+      "WRITE_BUDGET_EXHAUSTED",
+      "Лимит операций хранилища на этот месяц исчерпан. Загрузка и обработка откроются в начале следующего месяца.",
+    );
+  }
+
   ensureVideoSlot(
     assets: QuotaAsset[],
     kind: QuotaAsset["kind"],
@@ -142,7 +173,7 @@ export class QuotaService {
         status: true,
         kind: true,
         contentType: true,
-        derivatives: { select: { sizeBytes: true } },
+        derivatives: { select: { sizeBytes: true, kind: true } },
       },
     });
   }

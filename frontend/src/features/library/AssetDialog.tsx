@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fetchAssetDetail } from "./api";
+import { EditForm } from "./EditForm";
 import {
   ASSET_STATUS_LABEL,
   DERIV_LABEL,
@@ -28,6 +29,7 @@ import {
   type AssetStatus,
   type JobStatus,
 } from "./types";
+import { presetLabel } from "./presets";
 
 export function AssetDialog({
   asset,
@@ -53,11 +55,23 @@ export function AssetDialog({
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  useEffect(() => {
+    // Radix Select locks page scroll on open; locking it here first keeps the
+    // page scrollbar from vanishing mid-dialog and shifting the layout.
+    const root = document.documentElement;
+    const prev = root.style.overflow;
+    root.style.overflow = "hidden";
+    return () => {
+      root.style.overflow = prev;
+    };
+  }, []);
 
   useEffect(() => {
     let gone = false;
@@ -101,17 +115,18 @@ export function AssetDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/70"
       role="dialog"
       aria-modal="true"
       aria-label={view.originalName}
       onClick={onClose}
     >
+      <div className="flex min-h-full justify-center px-4 py-6 sm:px-6 sm:py-10">
       <div
-        className="bg-card flex max-h-[min(92vh,52rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl ring-1 ring-foreground/10"
+        className="bg-card h-fit w-full max-w-3xl self-start rounded-2xl ring-1 ring-foreground/10"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="relative bg-black">
+        <div className="relative overflow-hidden rounded-t-2xl bg-black">
           {canPlay ? (
             <video
               key={src ?? view.id}
@@ -174,7 +189,7 @@ export function AssetDialog({
           </Button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-4">
+        <div className="space-y-5 px-4 pb-4">
           {view.status === "PROCESSING" && (
             <p className="text-muted-foreground text-sm">
               {canceling
@@ -187,6 +202,13 @@ export function AssetDialog({
           {view.status === "FAILED" && lastError && (
             <p className="text-destructive text-sm">{lastError}</p>
           )}
+          {view.status === "READY" &&
+            detail?.jobs.at(-1)?.status === "FAILED" &&
+            detail.jobs.at(-1)?.error && (
+              <p className="text-destructive text-sm">
+                {detail.jobs.at(-1)?.error}
+              </p>
+            )}
           {error && (
             <p className="text-destructive text-sm">{error}</p>
           )}
@@ -200,6 +222,8 @@ export function AssetDialog({
           {detail && (
             <>
               <MetaGrid view={view} video={video} />
+
+              {view.status === "READY" && <EditForm key={`${view.id}:${view.durationMs ?? ""}`} asset={view} />}
 
               <section>
                 <h3 className="mb-2 text-xs font-medium tracking-wide uppercase">
@@ -255,7 +279,7 @@ export function AssetDialog({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm">
-                          {JOB_TYPE_LABEL[job.type]}
+                          {presetLabel(job.presetKey) ?? JOB_TYPE_LABEL[job.type]}
                         </span>
                         <Badge
                           variant={jobBadgeVariant(job.status)}
@@ -320,6 +344,7 @@ export function AssetDialog({
             Удалить
           </Button>
         </div>
+      </div>
       </div>
     </div>,
     document.body,

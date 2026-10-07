@@ -1,6 +1,11 @@
 export const DEFAULT_QUOTA_BYTES = 500 * 1024 * 1024;
-/** Общий потолок хранилища на всех пользователей. 1 ГБ, чтобы на проде упереться и проверить отказ. */
-export const GLOBAL_QUOTA_BYTES = 1 * 1024 * 1024 * 1024;
+/** Общий потолок хранилища на всех пользователей. Держим ниже 10 ГБ бесплатного R2. */
+export const GLOBAL_QUOTA_BYTES = 7 * 1024 * 1024 * 1024;
+/**
+ * Месячный потолок записей в хранилище (класс A в R2) на всё приложение.
+ * Бесплатно R2 даёт 1 млн; запас покрывает задачи, принятые до упора.
+ */
+export const MONTHLY_WRITE_OPS_CAP = 800_000;
 export const MAX_ACTIVE_VIDEOS = 1;
 export const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const ASSET_TTL_MS = 30 * 24 * 60 * 60 * 1000;

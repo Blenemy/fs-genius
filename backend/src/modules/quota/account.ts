@@ -6,16 +6,26 @@ export type QuotaAsset = {
   status: AssetStatus;
   kind: AssetKind | null;
   contentType: string;
-  derivatives: { sizeBytes: bigint }[];
+  derivatives: { sizeBytes: bigint; kind?: string }[];
 };
 
-/** Original is dropped after a successful video transcode. */
+/**
+ * Оригинал видео удаляется после первого транскода.
+ * PROCESSING с уже готовым 720p — это пресет: исходника на диске нет.
+ */
 export function countsOriginalObject(
   status: AssetStatus,
   kind: AssetKind | null,
+  derivatives?: { kind?: string }[],
 ): boolean {
   if (status === "PENDING") return false;
   if (kind === "VIDEO" && status === "READY") return false;
+  if (
+    kind === "VIDEO" &&
+    derivatives?.some((item) => item.kind === "VIDEO_720P")
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -50,7 +60,7 @@ export function usedBytesOf(assets: QuotaAsset[]): bigint {
       total += asset.sizeBytes;
       continue;
     }
-    if (countsOriginalObject(asset.status, asset.kind)) {
+    if (countsOriginalObject(asset.status, asset.kind, asset.derivatives)) {
       total += asset.sizeBytes;
     }
     for (const deriv of asset.derivatives) {

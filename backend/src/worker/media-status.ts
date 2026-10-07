@@ -57,6 +57,18 @@ export async function markAssetFailed(assetId: string) {
   });
 }
 
+/** Отмена пресета возвращает готовый файл, а не помечает актив отменённым. */
+export async function markEditCanceled(assetId: string) {
+  await prisma.job.updateMany({
+    where: { assetId, type: "EDIT", status: { in: ["QUEUED", "RUNNING"] } },
+    data: { status: "CANCELED", finishedAt: new Date() },
+  });
+  await prisma.asset.updateMany({
+    where: { id: assetId, status: "PROCESSING" },
+    data: { status: "READY" },
+  });
+}
+
 export async function markCanceledForAsset(assetId: string) {
   await prisma.job.updateMany({
     where: { assetId, status: { in: ["QUEUED", "RUNNING"] } },

@@ -8,6 +8,7 @@ const DERIV_LABEL: Record<DerivKind, string> = {
   POSTER: "постер",
   VIDEO_720P: "видео 720p",
   AUDIO_MP3: "аудио",
+  EXPORT: "результат",
 };
 
 const DERIV_ORDER: DerivKind[] = [
@@ -16,6 +17,7 @@ const DERIV_ORDER: DerivKind[] = [
   "THUMBNAIL",
   "VIDEO_720P",
   "AUDIO_MP3",
+  "EXPORT",
 ];
 
 /** What we actually upload to Telegram: stills only. Video → poster/preview. */
@@ -123,6 +125,8 @@ export function derivDownloadName(
       return `${stem}_720p.mp4`;
     case "AUDIO_MP3":
       return `${stem}_audio.mp3`;
+    case "EXPORT":
+      return `${stem}_result`;
     default:
       return originalName;
   }

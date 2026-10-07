@@ -5,7 +5,7 @@ import {
   JobCanceledError,
   WorkerShutdownError,
 } from "../shared/cancel.js";
-import { markCanceledForAsset } from "./media-status.js";
+import { markCanceledForAsset, markEditCanceled } from "./media-status.js";
 import type { MediaEventsPublisher } from "../lib/media-events-publisher.js";
 
 export function startJobAbort(
@@ -41,6 +41,19 @@ export async function persistCanceled(
     userId,
     assetId,
     status: "CANCELED",
+  });
+}
+
+export async function persistEditCanceled(
+  assetId: string,
+  userId: string,
+  mediaEvents: MediaEventsPublisher,
+): Promise<void> {
+  await markEditCanceled(assetId);
+  await mediaEvents.publish({
+    userId,
+    assetId,
+    status: "READY",
   });
 }
 

@@ -10,15 +10,30 @@ export function fetchAssetDetail(assetId: string) {
 }
 
 export function cancelAssetRequest(assetId: string) {
-  return apiJson<{ ok: true; pending: boolean }>(`/api/assets/${assetId}/cancel`, {
-    method: 'POST',
-  });
+  return apiJson<{ ok: true; pending: boolean; status: 'READY' | 'CANCELED' | 'PROCESSING' }>(
+    `/api/assets/${assetId}/cancel`,
+    { method: 'POST' },
+  );
 }
 
 export function restartAssetRequest(assetId: string) {
   return apiJson<{ ok: true; status: 'PROCESSING' }>(
     `/api/assets/${assetId}/jobs`,
     { method: 'POST' },
+  );
+}
+
+export function editAssetRequest(
+  assetId: string,
+  body: { preset: string; startMs?: number; endMs?: number },
+) {
+  return apiJson<{ ok: true; status: 'PROCESSING' }>(
+    `/api/assets/${assetId}/jobs`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
   );
 }
 

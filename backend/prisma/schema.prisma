@@ -172,6 +172,8 @@ enum JobType {
   IMAGE_VARIANTS
   VIDEO_TRANSCODE
   AUDIO_EXTRACT
+  /// Пресет поверх уже готового файла. Не первая обработка.
+  EDIT
 }
 
 /// Состояние задачи в MySQL. Прогресс процентами сюда не пишем на каждый тик —
@@ -191,6 +193,8 @@ enum DerivKind {
   POSTER
   VIDEO_720P
   AUDIO_MP3
+  /// Результат пресета. Один на актив: следующий пресет заменяет этот файл.
+  EXPORT
 }
 
 /// Файл пользователя. id — cuid Prisma, он же кусок ключа в MinIO.
@@ -240,6 +244,8 @@ model Job {
   attempts   Int       @default(0)
   error      String?   @db.Text
   presetKey  String?   @db.VarChar(50)
+  /// Аргументы пресета. Обрезка: { startMs, endMs }. В ffmpeg уходят только числа отсюда.
+  presetParams Json?
   /// id задачи в BullMQ. Нужен, чтобы снять её из очереди, пока воркер не взял.
   queueJobId String?   @db.VarChar(100)
   startedAt  DateTime?

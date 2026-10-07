@@ -35,6 +35,7 @@ export class UploadsService {
     }
 
     const ext = extensionFor(input.contentType);
+    await this.quota.ensureWriteBudget();
 
     const created = await this.quota.withUserLock(
       userId,

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { cancelAssetRequest, deleteAssetRequest, fetchAssetList, restartAssetRequest } from './api';
+import { cancelAssetRequest, deleteAssetRequest, editAssetRequest, fetchAssetList, restartAssetRequest } from './api';
 import type { Asset } from './types';
 import { useAuthStore } from '@/stores/auth';
 
@@ -9,12 +9,17 @@ interface LibraryState {
   deletingId: string | null;
   cancelingId: string | null;
   restartingId: string | null;
+  applyingId: string | null;
   error: string | null;
   fetchAssets: (opts?: { silent?: boolean }) => Promise<void>;
   applyAsset: (asset: Asset) => void;
   deleteAsset: (assetId: string) => Promise<void>;
   cancelAsset: (assetId: string) => Promise<void>;
   restartAsset: (assetId: string) => Promise<void>;
+  applyEdit: (
+    assetId: string,
+    body: { preset: string; startMs?: number; endMs?: number },
+  ) => Promise<void>;
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
@@ -23,6 +28,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   deletingId: null,
   cancelingId: null,
   restartingId: null,
+  applyingId: null,
   error: null,
 
   fetchAssets: async (opts) => {
@@ -69,9 +75,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       const result = await cancelAssetRequest(assetId);
       if (!result.pending) {
         const current = get().assets;
+        const status = result.status === 'READY' ? 'READY' : 'CANCELED';
         set({
           assets: current.map((asset) =>
-            asset.id === assetId ? { ...asset, status: 'CANCELED' } : asset,
+            asset.id === assetId ? { ...asset, status, progress: null } : asset,
           ),
           cancelingId: null,
         });
@@ -105,6 +112,26 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         restartingId: null,
         error: err instanceof Error ? err.message : 'Не удалось запустить снова',
       });
+    }
+  },
+
+  applyEdit: async (assetId, body) => {
+    set({ applyingId: assetId, error: null });
+    try {
+      await editAssetRequest(assetId, body);
+      const current = get().assets;
+      set({
+        assets: current.map((asset) =>
+          asset.id === assetId
+            ? { ...asset, status: 'PROCESSING', progress: 0 }
+            : asset,
+        ),
+        applyingId: null,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Не удалось запустить';
+      set({ applyingId: null, error: message });
+      throw err;
     }
   },
 

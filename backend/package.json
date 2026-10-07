@@ -15,7 +15,7 @@
     "start": "node dist/index.js",
     "start:worker": "node dist/worker.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/modules/telegram/*.test.ts src/modules/quota/*.test.ts src/modules/uploads/*.test.ts src/middleware/*.test.ts",
+    "test": "node --import tsx --test src/modules/telegram/*.test.ts src/modules/quota/*.test.ts src/modules/uploads/*.test.ts src/middleware/*.test.ts src/shared/*.test.ts src/lib/ffmpeg.test.ts",
     "lint": "eslint .",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
